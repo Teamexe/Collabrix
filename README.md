@@ -1,78 +1,107 @@
-# Visual Studio Code - Open Source ("Code - OSS")
-[![Feature Requests](https://img.shields.io/github/issues/microsoft/vscode/feature-request.svg)](https://github.com/microsoft/vscode/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-request+sort%3Areactions-%2B1-desc)
-[![Bugs](https://img.shields.io/github/issues/microsoft/vscode/bug.svg)](https://github.com/microsoft/vscode/issues?utf8=✓&q=is%3Aissue+is%3Aopen+label%3Abug)
-[![Gitter](https://img.shields.io/badge/chat-on%20gitter-yellow.svg)](https://gitter.im/Microsoft/vscode)
+# Collabrix
 
-## The Repository
-
-This repository ("`Code - OSS`") is where we (Microsoft) develop the [Visual Studio Code](https://code.visualstudio.com) product together with the community. Not only do we work on code and issues here, we also publish our [roadmap](https://github.com/microsoft/vscode/wiki/Roadmap), [monthly iteration plans](https://github.com/microsoft/vscode/wiki/Iteration-Plans), and our [endgame plans](https://github.com/microsoft/vscode/wiki/Running-the-Endgame). This source code is available to everyone under the standard [MIT license](https://github.com/microsoft/vscode/blob/main/LICENSE.txt).
-
-## Visual Studio Code
-
-<p align="center">
-  <img alt="VS Code in action" src="https://user-images.githubusercontent.com/35271042/118224532-3842c400-b438-11eb-923d-a5f66fa6785a.png">
+<p>
+  This project presents a next-generation, AI-powered collaborative Integrated
+Development Environment (IDE) designed to
+transform how distributed teams build,
+debug, and deploy software. The platform
+provides CRDT-synced real-time editing, live
+multi-user terminals, and a visual task
+dashboard that displays per-task percent-complete (manual + AI-estimated). Its core
+innovation is a Smart Terminal Emulator that
+understands single-sentence natural
+language and voice instructions, translates
+intent into safe, context aware shell
+workflows, fuzzy-resolves project paths, and
+visualizes outputs for rapid comprehension.
+Environment drift is eliminated by automatic,
+auditable dependency and devcontainer
+syncs; an Intent Prefetcher predicts and pre-builds likely dependencies to accelerate CI
+and developer onboarding. The system
+continuously monitors builds and
+deployments, captures per-user error
+contexts (commands, logs, environment
+snapshot), and presents AI generated
+diagnoses with one-click fixes or PRs.
+Collaboration is enhanced with semantic
+merge/repair, shared terminal checkpointing
+and handoff, command recipes, and an AI
+task router that assigns and forecasts risk.
+An administrator console enforces fine-grained folder and command access policies
+and maintains a secure audit trail, ensuring
+data integrity and compliance. Together,
+these features create a living, intelligent
+workspace that reduces friction, prevents
+“works-on-my-machine” problems, and
+substantially improves team productivity and
+reliability
 </p>
 
-[Visual Studio Code](https://code.visualstudio.com) is a distribution of the `Code - OSS` repository with Microsoft-specific customizations released under a traditional [Microsoft product license](https://code.visualstudio.com/License/).
+## Key Features
 
-[Visual Studio Code](https://code.visualstudio.com) combines the simplicity of a code editor with what developers need for their core edit-build-debug cycle. It provides comprehensive code editing, navigation, and understanding support along with lightweight debugging, a rich extensibility model, and lightweight integration with existing tools.
+- **Real-time Collaborative Editing**: CRDT-based synchronization (powered by Y.js) allows multiple users to edit the same file simultaneously without conflicts.
+- **Cursor Presence & Awareness**: See remote users' cursors and selections in real-time, complete with distinctive colors and name labels.
+- **Room-based Collaboration**: Easily create or join unique collaboration sessions to work securely with your team.
+- **Shared Live Terminals**: Synchronized terminal sessions allow all participants in a room to run commands, view outputs, and troubleshoot together.
+- **Isolated Docker Environments**: Automatic provisioning of per-room dev containers with resource limits (512 MB memory, 50% CPU quota) directly integrated.
+- **File & Workspace Synchronization**: Tracks opened files across remote users to maintain shared situational awareness.
+- **Smart Terminal Emulator**: Understands natural language instructions and translates them into safe shell workflows, while fuzzy-resolving project paths.
+- **AI Task Dashboard**: Visual task tracking featuring manual and AI-estimated percent-completion.
+- **Intent Prefetcher & Auto-sync**: Eliminates environment drift by automatically syncing dependencies and devcontainers, pre-building likely requirements.
+- **Continuous Build & Deployment Monitoring**: Captures error contexts per user (commands, logs, snapshots) to provide AI-generated diagnoses and one-click fixes.
+- **AI Task Router & Risk Forecasting**: Intelligently assigns tasks and predicts risks to streamline team workflows.
+- **Administrator Console**: Enforces fine-grained folder and command access policies with a secure audit trail to guarantee compliance and data integrity.
 
-Visual Studio Code is updated monthly with new features and bug fixes. You can download it for Windows, macOS, and Linux on [Visual Studio Code's website](https://code.visualstudio.com/Download). To get the latest releases every day, install the [Insiders build](https://code.visualstudio.com/insiders).
+## Getting Started
 
-## Contributing
+### Prerequisites
+- [Node.js](https://nodejs.org/) (v22+)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Optional, for isolated devcontainers)
 
-There are many ways in which you can participate in this project, for example:
+### Server Setup
 
-* [Submit bugs and feature requests](https://github.com/microsoft/vscode/issues), and help us verify as they are checked in
-* Review [source code changes](https://github.com/microsoft/vscode/pulls)
-* Review the [documentation](https://github.com/microsoft/vscode-docs) and make pull requests for anything from typos to additional and new content
+1. Navigate to the server directory: 
+   ```bash
+   cd extensions/collab-edit/collab-server
+   ```
+2. Install dependencies: 
+   ```bash
+   npm install
+   ```
+3. Build the server: 
+   ```bash
+   npm run build
+   ```
+4. Start the server (runs on port 4000): 
+   ```bash
+   npm start
+   ```
 
-If you are interested in fixing issues and contributing directly to the code base,
-please see the document [How to Contribute](https://github.com/microsoft/vscode/wiki/How-to-Contribute), which covers the following:
+### Extension Setup
 
-* [How to build and run from source](https://github.com/microsoft/vscode/wiki/How-to-Contribute)
-* [The development workflow, including debugging and running tests](https://github.com/microsoft/vscode/wiki/How-to-Contribute#debugging)
-* [Coding guidelines](https://github.com/microsoft/vscode/wiki/Coding-Guidelines)
-* [Submitting pull requests](https://github.com/microsoft/vscode/wiki/How-to-Contribute#pull-requests)
-* [Finding an issue to work on](https://github.com/microsoft/vscode/wiki/How-to-Contribute#where-to-contribute)
-* [Contributing to translations](https://aka.ms/vscodeloc)
+1. Navigate to the extension directory: 
+   ```bash
+   cd extensions/collab-edit
+   ```
+2. Install dependencies: 
+   ```bash
+   npm install
+   ```
+3. Compile the extension: 
+   ```bash
+   npm run compile
+   ```
 
-## Feedback
+### Launching Collabrix
+From the repository root, launch the customized VS Code instance:
 
-* Ask a question on [Stack Overflow](https://stackoverflow.com/questions/tagged/vscode)
-* [Request a new feature](CONTRIBUTING.md)
-* Upvote [popular feature requests](https://github.com/microsoft/vscode/issues?q=is%3Aopen+is%3Aissue+label%3Afeature-request+sort%3Areactions-%2B1-desc)
-* [File an issue](https://github.com/microsoft/vscode/issues)
-* Connect with the extension author community on [GitHub Discussions](https://github.com/microsoft/vscode-discussions/discussions) or [Slack](https://aka.ms/vscode-dev-community)
-* Follow [@code](https://x.com/code) and let us know what you think!
+- **Windows**: 
+  ```bash
+  .\scripts\code.bat
+  ```
+- **Linux/macOS**: 
+  ```bash
+  ./scripts/code.sh
+  ```
 
-See our [wiki](https://github.com/microsoft/vscode/wiki/Feedback-Channels) for a description of each of these channels and information on some other available community-driven channels.
-
-## Related Projects
-
-Many of the core components and extensions to VS Code live in their own repositories on GitHub. For example, the [node debug adapter](https://github.com/microsoft/vscode-node-debug) and the [mono debug adapter](https://github.com/microsoft/vscode-mono-debug) repositories are separate from each other. For a complete list, please visit the [Related Projects](https://github.com/microsoft/vscode/wiki/Related-Projects) page on our [wiki](https://github.com/microsoft/vscode/wiki).
-
-## Bundled Extensions
-
-VS Code includes a set of built-in extensions located in the [extensions](extensions) folder, including grammars and snippets for many languages. Extensions that provide rich language support (inline suggestions, Go to Definition) for a language have the suffix `language-features`. For example, the `json` extension provides coloring for `JSON` and the `json-language-features` extension provides rich language support for `JSON`.
-
-## Development Container
-
-This repository includes a Visual Studio Code Dev Containers / GitHub Codespaces development container.
-
-* For [Dev Containers](https://aka.ms/vscode-remote/download/containers), use the **Dev Containers: Clone Repository in Container Volume...** command which creates a Docker volume for better disk I/O on macOS and Windows.
-  * If you already have VS Code and Docker installed, you can also click [here](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/microsoft/vscode) to get started. This will cause VS Code to automatically install the Dev Containers extension if needed, clone the source code into a container volume, and spin up a dev container for use.
-
-* For Codespaces, install the [GitHub Codespaces](https://marketplace.visualstudio.com/items?itemName=GitHub.codespaces) extension in VS Code, and use the **Codespaces: Create New Codespace** command.
-
-Docker / the Codespace should have at least **4 Cores and 6 GB of RAM (8 GB recommended)** to run a full build. See the [development container README](.devcontainer/README.md) for more information.
-
-## Code of Conduct
-
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
-
-## License
-
-Copyright (c) Microsoft Corporation. All rights reserved.
-
-Licensed under the [MIT](LICENSE.txt) license.
+Once inside, open the Command Palette (`Ctrl+Shift+P`) and type **Collab** to create or join a collaboration room.
