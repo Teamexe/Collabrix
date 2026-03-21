@@ -1,0 +1,17 @@
+FROM node:20-slim
+
+# Install common dev tools
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    wget \
+    vim \
+    build-essential \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command — keep container running with a shell
+CMD ["/bin/bash"]

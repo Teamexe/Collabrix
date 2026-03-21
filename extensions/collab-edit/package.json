@@ -1,0 +1,99 @@
+{
+  "name": "collab-edit",
+  "displayName": "Collaborative Editing",
+  "description": "Real-time collaborative code editing with CRDT-based synchronization, cursor presence, shared terminals, and Docker environments",
+  "publisher": "vscode",
+  "version": "1.0.0",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:collab.createRoom",
+    "onCommand:collab.joinRoom"
+  ],
+  "main": "./out/extension",
+  "scripts": {
+    "compile": "npx tsc -p ./",
+    "watch": "npx tsc -watch -p ./",
+    "test": "node ../../node_modules/mocha/bin/mocha out/test/**/*.test.js --timeout 10000"
+  },
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "collab.createRoom",
+        "title": "Create Collaboration Room",
+        "category": "Collab"
+      },
+      {
+        "command": "collab.joinRoom",
+        "title": "Join Collaboration Room",
+        "category": "Collab"
+      },
+      {
+        "command": "collab.leaveRoom",
+        "title": "Leave Collaboration Room",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.showUsers",
+        "title": "Show Active Users",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.openSharedTerminal",
+        "title": "Open Shared Terminal",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      }
+    ],
+    "configuration": {
+      "title": "Collaborative Editing",
+      "properties": {
+        "collab.serverUrl": {
+          "type": "string",
+          "default": "ws://localhost:4000",
+          "description": "WebSocket URL of the collaboration server"
+        },
+        "collab.serverHttpUrl": {
+          "type": "string",
+          "default": "http://localhost:4000",
+          "description": "HTTP URL of the collaboration server REST API"
+        },
+        "collab.userName": {
+          "type": "string",
+          "default": "",
+          "description": "Your display name for collaboration sessions (auto-generated if empty)"
+        },
+        "collab.enableDocker": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Docker-based isolated environments for rooms"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "yjs": "^13.6.0",
+    "y-websocket": "^2.0.0",
+    "lib0": "^0.2.88",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.x",
+    "@types/uuid": "^9.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}
