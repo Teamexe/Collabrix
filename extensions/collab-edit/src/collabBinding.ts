@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import * as Y from 'yjs';
+import type { RbacManager } from './rbacManager';
 
 /**
  * Bidirectional binding between a VS Code TextDocument and a Y.Text CRDT.
@@ -27,7 +28,8 @@ export class CollabBinding implements vscode.Disposable {
 	constructor(
 		private readonly _document: vscode.TextDocument,
 		private readonly _ytext: Y.Text,
-		private readonly _ydoc: Y.Doc
+		private readonly _ydoc: Y.Doc,
+		private readonly _rbacManager?: RbacManager
 	) {
 		// Initial content synchronization:
 		// - If Y.Text already has content (joining an existing room),
@@ -111,6 +113,22 @@ export class CollabBinding implements vscode.Disposable {
 		}
 		if (this._suppressLocalBroadcast) {
 			return;
+		}
+
+		// Enforce RBAC Locks dynamically
+		if (this._rbacManager) {
+			const relativePath = vscode.workspace.asRelativePath(this._document.uri, false);
+			if (!this._rbacManager.hasAccess(this._rbacManager.currentUser, relativePath)) {
+				vscode.window.showWarningMessage(`Access Restricted by Admin! Reverting changes to ${relativePath}.`);
+				
+				// Revert by restoring the canonical CRDT state
+				this._suppressLocalBroadcast = true;
+				const crdtContent = this._ytext.toString();
+				this._applyFullContent(crdtContent).finally(() => {
+					this._suppressLocalBroadcast = false;
+				});
+				return;
+			}
 		}
 
 		this._suppressRemoteApply = true;

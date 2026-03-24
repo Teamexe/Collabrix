@@ -18,11 +18,13 @@ export class SharedTerminal implements vscode.Disposable {
 	private _closeEmitter = new vscode.EventEmitter<void>();
 	private readonly _roomId: string;
 	private readonly _serverUrl: string;
+	private readonly _containerId?: string | null;
 
-	constructor(roomId: string, serverUrl: string) {
+	constructor(roomId: string, serverUrl: string, containerId?: string | null) {
 		this._roomId = roomId;
 		// Convert ws:// URL to use /terminal path
 		this._serverUrl = serverUrl.replace(/\/?$/, '/terminal');
+		this._containerId = containerId;
 	}
 
 	/**
@@ -70,6 +72,19 @@ export class SharedTerminal implements vscode.Disposable {
 				this._writeEmitter.fire(
 					'\r\n\x1b[32m✓ Connected to shared terminal\x1b[0m\r\n\r\n'
 				);
+
+				if (this._containerId) {
+					// The room Host automatically tunnels the backend node-pty 
+					// process into the isolated Docker container.
+					setTimeout(() => {
+						this._sendInput(`docker exec -it ${this._containerId} /bin/bash\r`);
+						
+						// Slight delay to allow bash to initialize before clearing screen
+						setTimeout(() => {
+							this._sendInput(`clear\r`);
+						}, 300);
+					}, 500);
+				}
 			};
 
 			this._ws.onmessage = (event: MessageEvent) => {

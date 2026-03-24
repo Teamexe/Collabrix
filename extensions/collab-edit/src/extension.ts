@@ -32,6 +32,12 @@ export function activate(context: vscode.ExtensionContext): void {
 		}),
 		vscode.commands.registerCommand('collab.openSharedTerminal', () => {
 			session!.openSharedTerminal();
+		}),
+		vscode.commands.registerCommand('collab.assignPermission', () => {
+			session!.assignPermission();
+		}),
+		vscode.commands.registerCommand('collab.showArchitecture', () => {
+			session!.showArchitecture();
 		})
 	);
 }

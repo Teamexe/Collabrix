@@ -28,6 +28,14 @@
     }
   },
   "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "collabTasks",
+          "name": "Team Tasks"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "collab.createRoom",
@@ -56,8 +64,57 @@
         "title": "Open Shared Terminal",
         "category": "Collab",
         "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.assignPermission",
+        "title": "Assign Collaboration Permissions",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.showArchitecture",
+        "title": "Collab: Show Architecture",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.createTask",
+        "title": "Collabrix: Create Task Ticket",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.runDbQuery",
+        "title": "Collabrix: Open Shared DB Explorer",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.openBrowser",
+        "title": "Collabrix: Open Synced Browser",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.startHuddle",
+        "title": "Collabrix: Start Voice Huddle",
+        "category": "Collab"
+      },
+      {
+        "command": "collab.assignToAI",
+        "title": "Collabrix: Assign Task to AI",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
       }
     ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "collab.assignToAI",
+          "when": "view == collabTasks && viewItem == collabTask"
+        }
+      ]
+    },
     "configuration": {
       "title": "Collaborative Editing",
       "properties": {
