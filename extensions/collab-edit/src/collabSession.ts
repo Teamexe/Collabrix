@@ -1,8 +1,3 @@
-/*---------------------------------------------------------------------------------------------
- *  Collaborative Editing Extension for VS Code
- *  Licensed under the MIT License.
- *--------------------------------------------------------------------------------------------*/
-
 import * as vscode from 'vscode';
 import * as Y from 'yjs';
 
@@ -13,18 +8,24 @@ import { AwarenessManager } from './awarenessManager';
 import { CursorDecorationManager } from './cursorDecorations';
 import { FileSyncManager } from './fileSyncManager';
 import { SharedTerminal } from './sharedTerminal';
+import { RbacManager } from './rbacManager';
+import { HeatmapManager } from './heatmapManager';
+import { ShadowMergeEngine } from './shadowMergeEngine';
+import { ArchitectureWebview } from './architectureWebview';
+import { DockerManager } from './dockerManager';
+import { generateBaselineArchitecture } from './codeToDiagramSync';
+import { TaskSystem } from './taskSystem';
+import { DbExplorer } from './dbExplorer';
+import { EmbeddedBrowser } from './embeddedBrowser';
+import { ShadowQA } from './shadowQA';
+import { HuddleAssistant } from './huddleAssistant';
 
 interface RoomInfo {
 	roomId: string;
 	userName: string;
 }
 
-/**
- * Orchestrates a collaboration session.
- *
- * Manages websocket connections, Y.Doc per file, bindings, awareness,
- * shared terminals, and file sync.
- */
+
 export class CollabSession implements vscode.Disposable {
 	private _room: RoomInfo | null = null;
 	private _masterDoc: Y.Doc | null = null;
@@ -34,6 +35,16 @@ export class CollabSession implements vscode.Disposable {
 	private _cursorDecorations: CursorDecorationManager | null = null;
 	private _fileSyncManager: FileSyncManager | null = null;
 	private _sharedTerminal: SharedTerminal | null = null;
+	private _rbacManager: RbacManager | null = null;
+	private _heatmapManager: HeatmapManager | null = null;
+	private _shadowMergeEngine: ShadowMergeEngine | null = null;
+	private _archWebview: ArchitectureWebview | null = null;
+	private _dockerManager: DockerManager | null = null;
+	private _taskSystem: TaskSystem | null = null;
+	private _dbExplorer: DbExplorer | null = null;
+	private _embeddedBrowser: EmbeddedBrowser | null = null;
+	private _shadowQAAgent: ShadowQA | null = null;
+	private _huddleAssistant: HuddleAssistant | null = null;
 	private readonly _bindings: Map<string, CollabBinding> = new Map();
 	private readonly _disposables: vscode.Disposable[] = [];
 	private _statusBarItem: vscode.StatusBarItem;
@@ -78,6 +89,16 @@ export class CollabSession implements vscode.Disposable {
 
 			const data = await response.json() as { roomId: string };
 			const roomId = data.roomId;
+
+			const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+			if (workspacePath) {
+				this._dockerManager = new DockerManager();
+				try {
+					await this._dockerManager.spinUpEnvironment(workspacePath);
+				} catch (err) {
+					console.log('[collab] Docker spin-up failed, continuing without isolation.');
+				}
+			}
 
 			await this._joinInternal(roomId, userName);
 
@@ -205,9 +226,78 @@ export class CollabSession implements vscode.Disposable {
 
 		this._sharedTerminal = new SharedTerminal(
 			this._room.roomId,
-			serverUrl
+			serverUrl,
+			this._dockerManager?.containerId
 		);
 		this._sharedTerminal.open();
+	}
+
+	/**
+	 * Open the live Mermaid.js Team Brain System Architect webview.
+	 */
+	showArchitecture(): void {
+		if (!this._room) {
+			vscode.window.showWarningMessage('Not in a room. Cannot show architecture.');
+			return;
+		}
+
+		if (!this._archWebview) {
+			this._archWebview = new ArchitectureWebview(this._masterDoc!, () => {
+				this._archWebview = null;
+			});
+		} else {
+			this._archWebview.reveal();
+		}
+	}
+
+	/**
+	 * Admin Command: Assign restricted roles to room users.
+	 */
+	async assignPermission(): Promise<void> {
+		if (!this._room || !this._rbacManager) {
+			vscode.window.showWarningMessage('Not in a room. You cannot assign permissions.');
+			return;
+		}
+
+		const users = this._rbacManager.getAllUsers();
+		const myState = users.find(u => u.userId === this._room!.userName);
+
+		if (myState?.role !== 'admin') {
+			vscode.window.showErrorMessage('Only room admins can assign permissions!');
+			return;
+		}
+
+		const targetUserId = await vscode.window.showQuickPick(users.map(u => u.userId), {
+			placeHolder: 'Select a user to update permissions'
+		});
+
+		if (!targetUserId) return;
+
+		const role = await vscode.window.showQuickPick(['admin', 'contributor', 'restricted'] as const, {
+			placeHolder: `Select new role for ${targetUserId}`
+		});
+
+		if (!role) return;
+
+		let accessInput = undefined;
+		if (role === 'admin') {
+			accessInput = '*';
+		} else {
+			accessInput = await vscode.window.showInputBox({
+				prompt: 'Enter allowed paths comma-separated (use * for all files)',
+				placeHolder: 'e.g. *, backend, frontend/src/components'
+			});
+		}
+
+		if (accessInput === undefined) return;
+
+		const access = accessInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
+
+		this._rbacManager.updateUserAccess(
+			targetUserId, 
+			role as 'admin' | 'contributor' | 'restricted', 
+			access.length > 0 ? access : ['*']
+		);
 	}
 
 	/**
@@ -247,12 +337,33 @@ export class CollabSession implements vscode.Disposable {
 			this._cursorDecorations
 		);
 
+		// Set up RBAC manager
+		this._rbacManager = new RbacManager(this._masterDoc, userName);
+
+		// Set up advanced Phase 3 awareness
+		this._heatmapManager = new HeatmapManager(this._masterDoc);
+		this._shadowMergeEngine = new ShadowMergeEngine(this._wsProvider.awareness!, userName);
+
+		// Bootstrap foundational architecture diagram if needed (Phase 4)
+		const archText = this._masterDoc.getText('architecture');
+		generateBaselineArchitecture(archText, this._masterDoc);
+
+		// Phase 6 Integrations
+		this._taskSystem = new TaskSystem(this._masterDoc);
+		this._dbExplorer = new DbExplorer(this._masterDoc);
+		this._embeddedBrowser = new EmbeddedBrowser(this._masterDoc);
+
+		// Phase 7 AI Integrations
+		this._shadowQAAgent = new ShadowQA();
+		this._huddleAssistant = new HuddleAssistant(this._masterDoc);
+
 		// Set up file sync manager
 		this._fileSyncManager = new FileSyncManager(
 			this._masterDoc,
 			this._yDocManager,
 			this._wsProvider,
-			this._bindings
+			this._bindings,
+			this._rbacManager
 		);
 		this._fileSyncManager.activate();
 
@@ -304,7 +415,7 @@ export class CollabSession implements vscode.Disposable {
 
 		const ytext = this._yDocManager.getText(relativePath);
 		const ydoc = this._yDocManager.getOrCreateDoc(relativePath);
-		const binding = new CollabBinding(document, ytext, ydoc);
+		const binding = new CollabBinding(document, ytext, ydoc, this._rbacManager || undefined);
 		this._bindings.set(fileUri, binding);
 
 		// Connect this per-file doc to the server using relative path as room name
@@ -400,6 +511,37 @@ export class CollabSession implements vscode.Disposable {
 		// Dispose shared terminal
 		this._sharedTerminal?.dispose();
 		this._sharedTerminal = null;
+
+		// Dispose RBAC & Awareness modules
+		this._rbacManager?.dispose();
+		this._rbacManager = null;
+		
+		this._heatmapManager?.dispose();
+		this._heatmapManager = null;
+		
+		this._shadowMergeEngine?.dispose();
+		this._shadowMergeEngine = null;
+
+		this._archWebview?.dispose();
+		this._archWebview = null;
+
+		// Clean up isolated Docker environment
+		this._dockerManager?.destroyEnvironment();
+		this._dockerManager = null;
+
+		// Clean up Phase 6 integrations
+		this._taskSystem?.dispose();
+		this._taskSystem = null;
+		this._dbExplorer?.dispose();
+		this._dbExplorer = null;
+		this._embeddedBrowser?.dispose();
+		this._embeddedBrowser = null;
+
+		// Clean up Phase 7 Integrations
+		this._shadowQAAgent?.dispose();
+		this._shadowQAAgent = null;
+		this._huddleAssistant?.dispose();
+		this._huddleAssistant = null;
 
 		// Disconnect websocket
 		this._wsProvider?.dispose();

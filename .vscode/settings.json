@@ -54,6 +54,10 @@
 			"when": "$(basename).ts"
 		},
 	},
+	"files.watcherExclude": {
+		"**/.build/**": true,
+		"**/.git/**": true
+	},
 	"files.associations": {
 		"cglicenses.json": "jsonc",
 		"*.tst": "typescript"
