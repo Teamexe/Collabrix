@@ -105,6 +105,29 @@
         "title": "Collabrix: Assign Task to AI",
         "category": "Collab",
         "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.checkpointTerminal",
+        "title": "Collabrix: Save Terminal Checkpoint",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.handoffTerminal",
+        "title": "Collabrix: Restore Terminal Checkpoint (Handoff)",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.showAuditLog",
+        "title": "Collabrix: Show Audit Log",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.prefetchDeps",
+        "title": "Collabrix: Prefetch Dependencies",
+        "category": "Collab"
       }
     ],
     "menus": {

@@ -16,6 +16,28 @@ import { DockerManager } from './dockerManager';
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
 
+/** Server-side NL → shell translation (mirrors client-side patterns) */
+const NL_PATTERNS: Array<{ regex: RegExp; cmd: (m: RegExpMatchArray) => string }> = [
+	{ regex: /run (?:the )?tests?(?: for (.+))?/i, cmd: m => m[1] ? `npm test -- ${m[1]}` : 'npm test' },
+	{ regex: /build(?: the)?(?: project)?/i, cmd: () => 'npm run build' },
+	{ regex: /install(?: deps| dependencies)?/i, cmd: () => 'npm install' },
+	{ regex: /start(?: the)?(?: server| app)?/i, cmd: () => 'npm start' },
+	{ regex: /show (?:git )?(?:log|history)/i, cmd: () => 'git log --oneline -20' },
+	{ regex: /what changed/i, cmd: () => 'git diff --stat HEAD~1' },
+	{ regex: /list files?(?: in (.+))?/i, cmd: m => `ls -la ${m[1] || '.'}` },
+	{ regex: /clear(?: (?:the )?screen)?/i, cmd: () => 'clear' },
+	{ regex: /show (?:running )?processes?/i, cmd: () => 'ps aux' },
+	{ regex: /disk usage/i, cmd: () => 'df -h' },
+];
+
+function translateNL(sentence: string): string | null {
+	for (const { regex, cmd } of NL_PATTERNS) {
+		const m = sentence.match(regex);
+		if (m) return cmd(m);
+	}
+	return null;
+}
+
 // Initialize managers
 const roomManager = new RoomManager();
 const terminalManager = new TerminalManager();
@@ -82,7 +104,30 @@ terminalWss.on('connection', (ws: WebSocket) => {
 				}
 				case 'terminal:input': {
 					const { roomId, data: inputData } = msg;
-					terminalManager.writeInput(roomId, inputData);
+					// NL prefix: lines starting with '?' are natural language
+					if (typeof inputData === 'string' && inputData.startsWith('?')) {
+						const sentence = inputData.slice(1).replace(/\r$/, '').trim();
+						const translated = translateNL(sentence);
+						if (translated) {
+							// Echo preview back to the sender
+							ws.send(JSON.stringify({ type: 'terminal:nl_preview', command: translated }));
+							// Store pending NL command per client — confirmed on next bare Enter
+							(ws as any)._pendingNL = { roomId, command: translated };
+						} else {
+							ws.send(JSON.stringify({
+								type: 'terminal:output',
+								data: `\r\n\x1b[31m✗ Could not translate: "${sentence}"\x1b[0m\r\n`
+							}));
+						}
+					} else if (inputData === '\r' && (ws as any)._pendingNL) {
+						// Confirm pending NL command
+						const pending = (ws as any)._pendingNL as { roomId: string; command: string };
+						(ws as any)._pendingNL = null;
+						terminalManager.writeInput(pending.roomId, pending.command + '\r');
+					} else {
+						(ws as any)._pendingNL = null;
+						terminalManager.writeInput(roomId, inputData);
+					}
 					break;
 				}
 				case 'terminal:resize': {

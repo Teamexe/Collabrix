@@ -47,6 +47,8 @@ export class CollabSession implements vscode.Disposable {
 	private _embeddedBrowser: EmbeddedBrowser | null = null;
 	private _shadowQAAgent: ShadowQA | null = null;
 	private _huddleAssistant: HuddleAssistant | null = null;
+	private _auditLogger: AuditLogger | null = null;
+	private _intentPrefetcher: IntentPrefetcher | null = null;
 	private readonly _bindings: Map<string, CollabBinding> = new Map();
 	private readonly _disposables: vscode.Disposable[] = [];
 	private _statusBarItem: vscode.StatusBarItem;
@@ -58,6 +60,9 @@ export class CollabSession implements vscode.Disposable {
 		this._statusBarItem.command = 'collab.showUsers';
 		this._updateStatusBar();
 		this._statusBarItem.show();
+
+		// Intent prefetcher runs globally (not room-scoped)
+		this._intentPrefetcher = new IntentPrefetcher();
 	}
 
 	/**
@@ -103,6 +108,8 @@ export class CollabSession implements vscode.Disposable {
 			}
 
 			await this._joinInternal(roomId, userName);
+
+			this._auditLogger?.record(userName, 'room:create', `roomId=${roomId}`);
 
 			// Copy room ID to clipboard and show it
 			await vscode.env.clipboard.writeText(roomId);
@@ -155,6 +162,7 @@ export class CollabSession implements vscode.Disposable {
 			}
 
 			await this._joinInternal(roomId.trim(), userName);
+			this._auditLogger?.record(userName, 'room:join', `roomId=${roomId.trim()}`);
 			vscode.window.showInformationMessage(`Joined room: ${roomId.trim()}`);
 		} catch (err) {
 			vscode.window.showErrorMessage(`Failed to join room: ${err}`);
@@ -187,6 +195,7 @@ export class CollabSession implements vscode.Disposable {
 		}
 
 		this._cleanup();
+		this._auditLogger?.record(this._room?.userName ?? 'unknown', 'room:leave', `roomId=${this._room?.roomId}`);
 		vscode.window.showInformationMessage('Left the collaboration room.');
 	}
 
@@ -226,12 +235,63 @@ export class CollabSession implements vscode.Disposable {
 		const config = vscode.workspace.getConfiguration('collab');
 		const serverUrl = config.get<string>('serverUrl', 'ws://localhost:4000');
 
-		this._sharedTerminal = new SharedTerminal(
-			this._room.roomId,
-			serverUrl,
-			this._dockerManager?.containerId
-		);
+		if (!this._sharedTerminal) {
+			this._sharedTerminal = new SharedTerminal(
+				this._room.roomId,
+				serverUrl,
+				this._dockerManager?.containerId,
+				this._masterDoc!,
+				this._room.userName
+			);
+		}
 		this._sharedTerminal.open();
+		this._auditLogger?.record(this._room.userName, 'terminal:command', 'opened shared terminal');
+	}
+
+	/** Save a terminal checkpoint */
+	async checkpointTerminal(): Promise<void> {
+		if (!this._sharedTerminal) {
+			vscode.window.showWarningMessage('Open the shared terminal first.');
+			return;
+		}
+		await this._sharedTerminal.checkpoint();
+		this._auditLogger?.record(this._room!.userName, 'terminal:checkpoint', 'checkpoint saved');
+	}
+
+	/** Restore a terminal checkpoint (handoff) */
+	async handoffTerminal(): Promise<void> {
+		if (!this._room) {
+			vscode.window.showWarningMessage('Not in a room.');
+			return;
+		}
+		// Ensure terminal exists so handoff can open it
+		const config = vscode.workspace.getConfiguration('collab');
+		const serverUrl = config.get<string>('serverUrl', 'ws://localhost:4000');
+		if (!this._sharedTerminal) {
+			this._sharedTerminal = new SharedTerminal(
+				this._room.roomId,
+				serverUrl,
+				this._dockerManager?.containerId,
+				this._masterDoc!,
+				this._room.userName
+			);
+		}
+		await this._sharedTerminal.handoff();
+		this._auditLogger?.record(this._room.userName, 'terminal:handoff', 'checkpoint restored');
+	}
+
+	/** Show the audit log output channel */
+	showAuditLog(): void {
+		if (!this._auditLogger) {
+			vscode.window.showWarningMessage('Join a room first to view the audit log.');
+			return;
+		}
+		vscode.commands.executeCommand('collab.showAuditLog');
+	}
+
+	/** Manually trigger the intent prefetcher */
+	async prefetchDependencies(): Promise<void> {
+		await this._intentPrefetcher?.runManual();
 	}
 
 	/**
@@ -358,6 +418,9 @@ export class CollabSession implements vscode.Disposable {
 		// Phase 7 AI Integrations
 		this._shadowQAAgent = new ShadowQA();
 		this._huddleAssistant = new HuddleAssistant(this._masterDoc);
+
+		// Audit logger + intent prefetcher
+		this._auditLogger = new AuditLogger(this._masterDoc);
 
 		// Set up file sync manager
 		this._fileSyncManager = new FileSyncManager(
@@ -545,6 +608,10 @@ export class CollabSession implements vscode.Disposable {
 		this._huddleAssistant?.dispose();
 		this._huddleAssistant = null;
 
+		// Audit + prefetcher
+		this._auditLogger?.dispose();
+		this._auditLogger = null;
+
 		// Disconnect websocket
 		this._wsProvider?.dispose();
 		this._wsProvider = null;
@@ -571,6 +638,9 @@ export class CollabSession implements vscode.Disposable {
 			d.dispose();
 		}
 		this._disposables.length = 0;
+
+		this._intentPrefetcher?.dispose();
+		this._intentPrefetcher = null;
 
 		this._statusBarItem.dispose();
 	}

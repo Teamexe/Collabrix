@@ -110,7 +110,7 @@ export class SharedTerminal implements vscode.Disposable {
 		}
 
 		const pick = await vscode.window.showQuickPick(
-			all.map(cp => ({
+			all.map((cp: TerminalCheckpoint) => ({
 				label: cp.label,
 				description: `by ${cp.createdBy} at ${new Date(cp.timestamp).toLocaleTimeString()}`,
 				cp
