@@ -5,6 +5,10 @@
   "publisher": "vscode",
   "version": "1.0.0",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Teamexe/Collabrix.git"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -165,12 +169,14 @@
     }
   },
   "dependencies": {
-    "yjs": "^13.6.0",
-    "y-websocket": "^2.0.0",
+    "@vscode/vsce": "^3.7.1",
     "lib0": "^0.2.88",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "y-websocket": "^2.0.0",
+    "yjs": "^13.6.0"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/uuid": "^9.0.0",
     "@types/vscode": "^1.80.0",

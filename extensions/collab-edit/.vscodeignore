@@ -1,0 +1,10 @@
+.vscode/**
+src/**
+collab-server/src/**
+collab-server/node_modules/**
+node_modules/**
+**/*.map
+**/*.ts
+!out/**
+tsconfig.json
+.npmrc
