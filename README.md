@@ -1,107 +1,150 @@
 # Collabrix
 
-<p>
-  This project presents a next-generation, AI-powered collaborative Integrated
-Development Environment (IDE) designed to
-transform how distributed teams build,
-debug, and deploy software. The platform
-provides CRDT-synced real-time editing, live
-multi-user terminals, and a visual task
-dashboard that displays per-task percent-complete (manual + AI-estimated). Its core
-innovation is a Smart Terminal Emulator that
-understands single-sentence natural
-language and voice instructions, translates
-intent into safe, context aware shell
-workflows, fuzzy-resolves project paths, and
-visualizes outputs for rapid comprehension.
-Environment drift is eliminated by automatic,
-auditable dependency and devcontainer
-syncs; an Intent Prefetcher predicts and pre-builds likely dependencies to accelerate CI
-and developer onboarding. The system
-continuously monitors builds and
-deployments, captures per-user error
-contexts (commands, logs, environment
-snapshot), and presents AI generated
-diagnoses with one-click fixes or PRs.
-Collaboration is enhanced with semantic
-merge/repair, shared terminal checkpointing
-and handoff, command recipes, and an AI
-task router that assigns and forecasts risk.
-An administrator console enforces fine-grained folder and command access policies
-and maintains a secure audit trail, ensuring
-data integrity and compliance. Together,
-these features create a living, intelligent
-workspace that reduces friction, prevents
-“works-on-my-machine” problems, and
-substantially improves team productivity and
-reliability
-</p>
+> A next-generation, AI-powered collaborative IDE built on VS Code — designed to eliminate the friction of distributed software development.
 
-## Key Features
+---
 
-- **Real-time Collaborative Editing**: CRDT-based synchronization (powered by Y.js) allows multiple users to edit the same file simultaneously without conflicts.
-- **Cursor Presence & Awareness**: See remote users' cursors and selections in real-time, complete with distinctive colors and name labels.
-- **Room-based Collaboration**: Easily create or join unique collaboration sessions to work securely with your team.
-- **Shared Live Terminals**: Synchronized terminal sessions allow all participants in a room to run commands, view outputs, and troubleshoot together.
-- **Isolated Docker Environments**: Automatic provisioning of per-room dev containers with resource limits (512 MB memory, 50% CPU quota) directly integrated.
-- **File & Workspace Synchronization**: Tracks opened files across remote users to maintain shared situational awareness.
-- **Smart Terminal Emulator**: Understands natural language instructions and translates them into safe shell workflows, while fuzzy-resolving project paths.
-- **AI Task Dashboard**: Visual task tracking featuring manual and AI-estimated percent-completion.
-- **Intent Prefetcher & Auto-sync**: Eliminates environment drift by automatically syncing dependencies and devcontainers, pre-building likely requirements.
-- **Continuous Build & Deployment Monitoring**: Captures error contexts per user (commands, logs, snapshots) to provide AI-generated diagnoses and one-click fixes.
-- **AI Task Router & Risk Forecasting**: Intelligently assigns tasks and predicts risks to streamline team workflows.
-- **Administrator Console**: Enforces fine-grained folder and command access policies with a secure audit trail to guarantee compliance and data integrity.
+## The Problem
+
+Distributed dev teams face a set of recurring, costly problems:
+
+- "It works on my machine" — environment drift between teammates
+- Slow onboarding — new devs spend days setting up environments
+- Context loss — handoffs between teammates lose critical state
+- Coordination overhead — tracking who's doing what, and what's broken
+- Merge conflicts and diverging codebases during parallel work
+
+Collabrix is built to solve all of these at once.
+
+---
+
+## What Collabrix Is
+
+Collabrix is a VS Code fork that turns a solo IDE into a living, shared workspace. Every team member works in the same environment, sees the same state, and gets AI assistance throughout — from writing code to diagnosing failures to managing tasks.
+
+---
+
+## Core Architecture
+
+Collabrix is organized around four pillars:
+
+### 1. Real-Time Collaboration
+- CRDT-based co-editing powered by [Y.js](https://yjs.dev/) — multiple users edit the same file simultaneously with zero conflicts
+- Live cursor presence with per-user colors and name labels
+- Room-based sessions — create or join a collaboration room via the Command Palette
+- File and workspace awareness — see which files teammates have open
+
+### 2. Shared Environment
+- Per-room isolated Docker containers provisioned automatically (512 MB memory, 50% CPU quota)
+- Shared live terminals — all room participants see the same terminal, run commands together, and hand off sessions with full checkpoint/restore
+- Automatic dependency and devcontainer sync — environment drift is eliminated; everyone runs the same stack
+- Intent Prefetcher — predicts likely dependencies based on current work and pre-builds them to accelerate CI and onboarding
+
+### 3. AI-Powered Assistance
+- Smart Terminal Emulator — understands single-sentence natural language and voice instructions, translates intent into safe, context-aware shell workflows, and fuzzy-resolves project paths
+- Continuous build and deployment monitoring — captures per-user error context (commands, logs, environment snapshot) and presents AI-generated diagnoses with one-click fixes or PR suggestions
+- Semantic merge and repair — AI-assisted conflict resolution that understands code intent, not just text diffs
+- Command recipes — reusable, shareable shell workflows for common team tasks
+
+### 4. Task Intelligence & Governance
+- AI Task Dashboard — visual per-task progress tracking with both manual and AI-estimated percent-completion
+- AI Task Router — intelligently assigns tasks to team members and forecasts delivery risk
+- Administrator Console — fine-grained folder and command access policies, enforced at runtime
+- Secure audit trail — every action is logged for compliance and accountability
+
+---
+
+## Key Features at a Glance
+
+| Feature | Description |
+|---|---|
+| CRDT Co-editing | Conflict-free simultaneous editing via Y.js |
+| Cursor Presence | Live remote cursors with colors and labels |
+| Room Sessions | Create/join collaboration rooms instantly |
+| Shared Terminals | Synchronized terminal with checkpoint & handoff |
+| Docker Isolation | Auto-provisioned per-room dev containers |
+| Smart Terminal | Natural language → safe shell commands |
+| Intent Prefetcher | Pre-builds predicted dependencies |
+| Auto Env Sync | Eliminates environment drift automatically |
+| AI Diagnostics | Error context capture + one-click fixes |
+| Task Dashboard | Manual + AI-estimated task completion |
+| AI Task Router | Task assignment + risk forecasting |
+| Admin Console | Access policies + full audit trail |
+
+---
 
 ## Getting Started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (v22+)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Optional, for isolated devcontainers)
 
-### Server Setup
+- [Node.js](https://nodejs.org/) v22+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (optional, for isolated devcontainers)
 
-1. Navigate to the server directory: 
-   ```bash
-   cd extensions/collab-edit/collab-server
-   ```
-2. Install dependencies: 
-   ```bash
-   npm install
-   ```
-3. Build the server: 
-   ```bash
-   npm run build
-   ```
-4. Start the server (runs on port 4000): 
-   ```bash
-   npm start
-   ```
+### 1. Start the Collaboration Server
 
-### Extension Setup
+```bash
+cd extensions/collab-edit/collab-server
+npm install
+npm run build
+npm start
+# Server runs on port 4000
+```
 
-1. Navigate to the extension directory: 
-   ```bash
-   cd extensions/collab-edit
-   ```
-2. Install dependencies: 
-   ```bash
-   npm install
-   ```
-3. Compile the extension: 
-   ```bash
-   npm run compile
-   ```
+### 2. Set Up the Extension
 
-### Launching Collabrix
-From the repository root, launch the customized VS Code instance:
+```bash
+cd extensions/collab-edit
+npm install
+npm run compile
+```
 
-- **Windows**: 
-  ```bash
-  .\scripts\code.bat
-  ```
-- **Linux/macOS**: 
-  ```bash
-  ./scripts/code.sh
-  ```
+### 3. Launch Collabrix
 
-Once inside, open the Command Palette (`Ctrl+Shift+P`) and type **Collab** to create or join a collaboration room.
+From the repository root:
+
+```bash
+# Linux / macOS
+./scripts/code.sh
+
+# Windows
+.\scripts\code.bat
+```
+
+Open the Command Palette (`Ctrl+Shift+P`) and type **Collab** to create or join a room.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| IDE Base | VS Code (open-source fork) |
+| Language | TypeScript, Rust (CLI) |
+| Real-time Sync | Y.js (CRDT) |
+| Runtime | Electron, Node.js, Browser APIs |
+| Containers | Docker |
+| Build | npm, gulp, webpack |
+| Testing | Mocha |
+
+---
+
+## Project Structure
+
+```
+src/vs/
+  base/          # Cross-platform utilities and abstractions
+  platform/      # Injectable services (files, config, terminal, etc.)
+  editor/        # Text editor core and language services
+  workbench/     # Main app UI, contributions, extension host
+  sessions/      # Agentic workflows layer
+extensions/
+  collab-edit/   # Collabrix collaboration extension + server
+cli/             # Rust-based CLI
+build/           # CI/CD and build tooling
+```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding guidelines, and how to submit changes.
