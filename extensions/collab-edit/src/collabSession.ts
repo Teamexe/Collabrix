@@ -19,6 +19,8 @@ import { DbExplorer } from './dbExplorer';
 import { EmbeddedBrowser } from './embeddedBrowser';
 import { ShadowQA } from './shadowQA';
 import { HuddleAssistant } from './huddleAssistant';
+import { AuditLogger } from './auditLogger';
+import { IntentPrefetcher } from './intentPrefetcher';
 
 interface RoomInfo {
 	roomId: string;
@@ -294,8 +296,8 @@ export class CollabSession implements vscode.Disposable {
 		const access = accessInput.split(',').map(s => s.trim()).filter(s => s.length > 0);
 
 		this._rbacManager.updateUserAccess(
-			targetUserId, 
-			role as 'admin' | 'contributor' | 'restricted', 
+			targetUserId,
+			role as 'admin' | 'contributor' | 'restricted',
 			access.length > 0 ? access : ['*']
 		);
 	}
@@ -515,10 +517,10 @@ export class CollabSession implements vscode.Disposable {
 		// Dispose RBAC & Awareness modules
 		this._rbacManager?.dispose();
 		this._rbacManager = null;
-		
+
 		this._heatmapManager?.dispose();
 		this._heatmapManager = null;
-		
+
 		this._shadowMergeEngine?.dispose();
 		this._shadowMergeEngine = null;
 
