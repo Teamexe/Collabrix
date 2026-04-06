@@ -79,23 +79,9 @@ export class CollabSession implements vscode.Disposable {
 			return;
 		}
 
-		const config = vscode.workspace.getConfiguration('collab');
-		const httpUrl = config.get<string>('serverHttpUrl', 'http://localhost:4000');
-
 		try {
-			// Call REST API to create room
-			const response = await fetch(`${httpUrl}/api/create-room`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ hostName: userName })
-			});
-
-			if (!response.ok) {
-				throw new Error(`Server returned ${response.status}`);
-			}
-
-			const data = await response.json() as { roomId: string };
-			const roomId = data.roomId;
+			// Generate room ID locally (no REST API needed)
+			const roomId = Math.random().toString(36).substring(2, 11);
 
 			const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 			if (workspacePath) {
@@ -147,20 +133,7 @@ export class CollabSession implements vscode.Disposable {
 			return;
 		}
 
-		const config = vscode.workspace.getConfiguration('collab');
-		const httpUrl = config.get<string>('serverHttpUrl', 'http://localhost:4000');
-
 		try {
-			const response = await fetch(`${httpUrl}/api/join-room`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ roomId: roomId.trim(), userName })
-			});
-
-			if (!response.ok) {
-				throw new Error(`Server returned ${response.status}`);
-			}
-
 			await this._joinInternal(roomId.trim(), userName);
 			this._auditLogger?.record(userName, 'room:join', `roomId=${roomId.trim()}`);
 			vscode.window.showInformationMessage(`Joined room: ${roomId.trim()}`);
@@ -178,22 +151,6 @@ export class CollabSession implements vscode.Disposable {
 			return;
 		}
 
-		const config = vscode.workspace.getConfiguration('collab');
-		const httpUrl = config.get<string>('serverHttpUrl', 'http://localhost:4000');
-
-		try {
-			await fetch(`${httpUrl}/api/leave-room`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					roomId: this._room.roomId,
-					userName: this._room.userName
-				})
-			});
-		} catch {
-			// Best-effort leave notification
-		}
-
 		this._cleanup();
 		this._auditLogger?.record(this._room?.userName ?? 'unknown', 'room:leave', `roomId=${this._room?.roomId}`);
 		vscode.window.showInformationMessage('Left the collaboration room.');
@@ -208,18 +165,12 @@ export class CollabSession implements vscode.Disposable {
 			return;
 		}
 
-		const config = vscode.workspace.getConfiguration('collab');
-		const httpUrl = config.get<string>('serverHttpUrl', 'http://localhost:4000');
-
-		try {
-			const response = await fetch(
-				`${httpUrl}/api/active-users/${this._room.roomId}`
-			);
-			const data = await response.json() as { users: string[] };
-			const userList = data.users.join(', ');
-			vscode.window.showInformationMessage(`Active users: ${userList}`);
-		} catch (err) {
-			vscode.window.showErrorMessage(`Failed to fetch users: ${err}`);
+		if (this._awarenessManager) {
+			const users = this._awarenessManager.getStates();
+			const names = Array.from(users.values()).map(s => s.user?.name || 'Anonymous');
+			vscode.window.showInformationMessage(`Active users: ${names.join(', ')}`);
+		} else {
+			vscode.window.showWarningMessage('User list not ready.');
 		}
 	}
 

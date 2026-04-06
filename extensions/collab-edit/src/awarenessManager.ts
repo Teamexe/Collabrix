@@ -151,6 +151,10 @@ export class AwarenessManager implements vscode.Disposable {
 		this._cursorDecorations.updateRemoteCursors(remoteCursors);
 	};
 
+	public getStates(): Map<number, AwarenessState> {
+		return this._awareness.getStates() as Map<number, AwarenessState>;
+	}
+
 	dispose(): void {
 		this._awareness.off('change', this._onRemoteAwarenessChange);
 

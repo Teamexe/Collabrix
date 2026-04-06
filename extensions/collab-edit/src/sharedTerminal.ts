@@ -32,7 +32,7 @@ export interface TerminalCheckpoint {
 
 export class SharedTerminal implements vscode.Disposable {
 	private _terminal: vscode.Terminal | null = null;
-	private _ws: WebSocket | null = null;
+	private _ws: any = null;
 	private _writeEmitter = new vscode.EventEmitter<string>();
 	private _closeEmitter = new vscode.EventEmitter<void>();
 	private readonly _roomId: string;
@@ -189,6 +189,10 @@ export class SharedTerminal implements vscode.Disposable {
 		} catch (err) {
 			this._writeEmitter.fire(`\r\n\x1b[31m✗ Failed to connect: ${err}\x1b[0m\r\n`);
 		}
+
+		vscode.window.showWarningMessage(
+			`Shared terminal relay not available ${reason}. Opened a local terminal instead.`
+		);
 	}
 
 	private _sendInput(data: string): void {
