@@ -25,6 +25,7 @@ export class FileSyncManager implements vscode.Disposable {
 	
 	// Guard against infinite loop reflections when applying remote changes
 	private _isApplyingRemote: boolean = false;
+	private _syncInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor(
 		masterDoc: Y.Doc,
@@ -49,13 +50,190 @@ export class FileSyncManager implements vscode.Disposable {
 			vscode.workspace.onDidRenameFiles((e) => this._onLocalFilesRenamed(e))
 		);
 
-		// Observe remote Y.js file map changes
+		// Backup: catch file saves (covers Ctrl+N → Save As, or external file creation)
+		this._disposables.push(
+			vscode.workspace.onDidSaveTextDocument((doc) => {
+				if (this._isApplyingRemote) return;
+				if (doc.uri.scheme !== 'file') return;
+				this._syncSingleFileToRemote(doc.uri);
+			})
+		);
+
+		// Backup: FileSystemWatcher catches ANY file created on disk
+		const workspaceRoot = vscode.workspace.workspaceFolders?.[0];
+		if (workspaceRoot) {
+			const watcher = vscode.workspace.createFileSystemWatcher(
+				new vscode.RelativePattern(workspaceRoot, '**/*'),
+				false, true, false // watch creates and deletes, ignore changes
+			);
+			watcher.onDidCreate((uri) => {
+				if (this._isApplyingRemote) return;
+				this._syncSingleFileToRemote(uri);
+			});
+			watcher.onDidDelete((uri) => {
+				if (this._isApplyingRemote) return;
+				const relPath = vscode.workspace.asRelativePath(uri, false);
+				if (this._fsMap.has(relPath)) {
+					this._masterDoc.transact(() => {
+						this._fsMap.delete(relPath);
+					});
+					console.log(`[collab] Watcher: deleted ${relPath} from CRDT`);
+				}
+			});
+			this._disposables.push(watcher);
+		}
+
+		// Observe remote Y.js file map changes (for live updates during session)
 		this._fsMap.observe((e) => this._onRemoteFsChange(e));
 
-		// Scan initial workspace to populate fsMap (optional late-join sync)
+		// Scan initial workspace to populate fsMap (host populates for joiners)
 		this._buildInitialFsMap();
 
+		// After a delay, sync any files from the CRDT that don't exist locally.
+		setTimeout(() => this._syncRemoteFilesToLocal(), 3000);
+
+		// Poll every 5 seconds to catch any missed file changes
+		this._syncInterval = setInterval(() => this._syncRemoteFilesToLocal(), 5000);
+
 		console.log('[collab] FileSyncManager activated for real-time physical sync');
+	}
+
+	/**
+	 * Sync a single local file to the CRDT map.
+	 * Used by the watcher and save listener as a fallback.
+	 */
+	private async _syncSingleFileToRemote(uri: vscode.Uri): Promise<void> {
+		const relPath = vscode.workspace.asRelativePath(uri, false);
+		// Skip node_modules, .git, etc.
+		if (relPath.includes('node_modules') || relPath.includes('.git')) return;
+
+		try {
+			const stat = await vscode.workspace.fs.stat(uri);
+			if (stat.type === vscode.FileType.Directory) {
+				if (!this._fsMap.has(relPath)) {
+					this._masterDoc.transact(() => this._fsMap.set(relPath, "DIR"));
+				}
+			} else {
+				const data = await vscode.workspace.fs.readFile(uri);
+				const base64 = Buffer.from(data).toString('base64');
+				const existing = this._fsMap.get(relPath);
+				if (existing !== base64) {
+					this._masterDoc.transact(() => this._fsMap.set(relPath, base64));
+					console.log(`[collab] Synced file to CRDT: ${relPath}`);
+				}
+			}
+		} catch (err) {
+			console.error(`[collab] Failed to sync file ${relPath}:`, err);
+		}
+	}
+
+	/**
+	 * Materialize all files from the CRDT map that don't exist locally.
+	 * This runs once after joining to catch the initial state sync.
+	 */
+	private async _syncRemoteFilesToLocal(): Promise<void> {
+		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+		if (!workspaceRoot) return;
+
+		this._isApplyingRemote = true;
+
+		let created = 0;
+		let deleted = 0;
+		try {
+			// 1. Create files/folders that exist in CRDT but not locally
+			for (const [relPath, content] of this._fsMap.entries()) {
+				const targetUri = vscode.Uri.joinPath(workspaceRoot, relPath);
+
+				try {
+					await vscode.workspace.fs.stat(targetUri);
+					continue; // Already exists, skip
+				} catch {
+					// Doesn't exist locally — create it
+				}
+
+				if (content === "DIR") {
+					await vscode.workspace.fs.createDirectory(targetUri);
+					created++;
+				} else {
+					const bytes = content && content.length > 0
+						? Buffer.from(content, 'base64')
+						: Buffer.from('');
+					await vscode.workspace.fs.writeFile(targetUri, Uint8Array.from(bytes));
+					created++;
+				}
+			}
+
+			// 2. Delete local files/folders that were removed from CRDT
+			// Scan files
+			const localFiles = await vscode.workspace.findFiles(
+				new vscode.RelativePattern(workspaceRoot, '**/*'),
+				'{**/node_modules/**,**/.git/**,**/dist/**,**/out/**}',
+				500
+			);
+
+			for (const localFile of localFiles) {
+				const relPath = vscode.workspace.asRelativePath(localFile, false);
+				if (!this._fsMap.has(relPath)) {
+					try {
+						await vscode.workspace.fs.delete(localFile);
+						deleted++;
+						console.log(`[collab] Deleted local file: ${relPath}`);
+					} catch { /* ignore */ }
+				}
+			}
+
+			// Scan folders and delete empty ones not in CRDT
+			const localDirs = await this._findLocalDirs(workspaceRoot);
+			// Process deepest first so child folders are deleted before parents
+			localDirs.sort((a, b) => b.length - a.length);
+			for (const dirRelPath of localDirs) {
+				if (!this._fsMap.has(dirRelPath)) {
+					const dirUri = vscode.Uri.joinPath(workspaceRoot, dirRelPath);
+					try {
+						const children = await vscode.workspace.fs.readDirectory(dirUri);
+						if (children.length === 0) {
+							await vscode.workspace.fs.delete(dirUri, { recursive: true });
+							deleted++;
+							console.log(`[collab] Deleted empty local folder: ${dirRelPath}`);
+						}
+					} catch { /* ignore */ }
+				}
+			}
+
+			if (created > 0 || deleted > 0) {
+				const parts = [];
+				if (created > 0) parts.push(`${created} created`);
+				if (deleted > 0) parts.push(`${deleted} deleted`);
+				console.log(`[collab] File sync: ${parts.join(', ')}`);
+				vscode.window.showInformationMessage(`📂 File sync: ${parts.join(', ')}`);
+			}
+		} catch (err) {
+			console.error('[collab] Error syncing remote files:', err);
+		} finally {
+			setTimeout(() => { this._isApplyingRemote = false; }, 300);
+		}
+	}
+
+	/**
+	 * Recursively find all directories under a root (relative paths).
+	 */
+	private async _findLocalDirs(root: vscode.Uri, prefix = ''): Promise<string[]> {
+		const dirs: string[] = [];
+		try {
+			const entries = await vscode.workspace.fs.readDirectory(root);
+			for (const [name, type] of entries) {
+				if (type === vscode.FileType.Directory) {
+					if (['node_modules', '.git', 'dist', 'out'].includes(name)) continue;
+					const relPath = prefix ? `${prefix}/${name}` : name;
+					dirs.push(relPath);
+					const childDirs = await this._findLocalDirs(
+						vscode.Uri.joinPath(root, name), relPath
+					);
+					dirs.push(...childDirs);
+				}
+			}
+		} catch { /* ignore */ }
+		return dirs;
 	}
 
 	/**
@@ -232,34 +410,59 @@ export class FileSyncManager implements vscode.Disposable {
 	 */
 	private async _buildInitialFsMap(): Promise<void> {
 		if (this._fsMap.size > 0) {
-			return; // Room already populated
+			return; // Room already populated by another user
 		}
 
 		const workspaceFolders = vscode.workspace.workspaceFolders;
 		if (!workspaceFolders) return;
 
 		try {
+			// Scan files
 			const files = await vscode.workspace.findFiles(
 				new vscode.RelativePattern(workspaceFolders[0], '**/*'),
-				'**/node_modules/**',
-				1000
+				'{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/*.png,**/*.jpg,**/*.exe}',
+				500
 			);
 
-			this._masterDoc.transact(() => {
-				for (const file of files) {
-					const relativePath = vscode.workspace.asRelativePath(file, false);
-					if (!this._fsMap.has(relativePath)) {
-						this._fsMap.set(relativePath, ""); 
+			for (const file of files) {
+				const relativePath = vscode.workspace.asRelativePath(file, false);
+				if (!this._fsMap.has(relativePath)) {
+					try {
+						const data = await vscode.workspace.fs.readFile(file);
+						const base64Content = Buffer.from(data).toString('base64');
+						this._masterDoc.transact(() => {
+							this._fsMap.set(relativePath, base64Content);
+						});
+					} catch {
+						this._masterDoc.transact(() => {
+							this._fsMap.set(relativePath, "");
+						});
 					}
 				}
-			});
-			console.log(`[collab] Initialized ${files.length} paths into CRDT map.`);
+			}
+
+			// Scan folders (including empty ones)
+			const dirs = await this._findLocalDirs(workspaceFolders[0].uri);
+			for (const dirPath of dirs) {
+				if (!this._fsMap.has(dirPath)) {
+					this._masterDoc.transact(() => {
+						this._fsMap.set(dirPath, "DIR");
+					});
+				}
+			}
+
+			console.log(`[collab] Initialized ${files.length} files + ${dirs.length} folders into CRDT map.`);
 		} catch (err) {
 			console.error('[collab] Failed to build initial fsMap:', err);
 		}
 	}
 
 	dispose(): void {
+		if (this._syncInterval) {
+			clearInterval(this._syncInterval);
+			this._syncInterval = null;
+		}
+
 		this._fsMap.unobserve(this._onRemoteFsChange);
 
 		for (const d of this._disposables) {

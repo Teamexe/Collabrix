@@ -9,11 +9,11 @@ import * as vscode from 'vscode';
  * Shared terminal that syncs I/O across all users in a collaboration room.
  *
  * Connects via WebSocket to the server's /terminal endpoint.
- * Implements vscode.Pseudoterminal to pipe data through the WebSocket.
+ * Falls back to a local shell if the WebSocket server is unreachable.
  */
 export class SharedTerminal implements vscode.Disposable {
 	private _terminal: vscode.Terminal | null = null;
-	private _ws: WebSocket | null = null;
+	private _ws: any = null;
 	private _writeEmitter = new vscode.EventEmitter<string>();
 	private _closeEmitter = new vscode.EventEmitter<void>();
 	private readonly _roomId: string;
@@ -36,35 +36,55 @@ export class SharedTerminal implements vscode.Disposable {
 			return;
 		}
 
-		const pty: vscode.Pseudoterminal = {
-			onDidWrite: this._writeEmitter.event,
-			onDidClose: this._closeEmitter.event,
-			open: () => this._connect(),
-			close: () => this._disconnect(),
-			handleInput: (data: string) => this._sendInput(data),
-			setDimensions: (dimensions: vscode.TerminalDimensions) => {
-				this._sendResize(dimensions.columns, dimensions.rows);
-			}
-		};
+		// Use Node.js 'ws' module (browser WebSocket doesn't exist in Extension Host)
+		let wsModule: any;
+		try {
+			wsModule = require('ws');
+		} catch {
+			this._openLocalTerminal('(ws module not found)');
+			return;
+		}
 
-		this._terminal = vscode.window.createTerminal({
-			name: `Shared Terminal [${this._roomId.substring(0, 8)}]`,
-			pty
-		});
+		try {
+			const ws = new wsModule(this._serverUrl);
+			let connected = false;
 
-		this._terminal.show();
+			// Give the server 3 seconds to respond
+			const timeout = setTimeout(() => {
+				if (!connected) {
+					try { ws.close(); } catch { /* ignore */ }
+					this._openLocalTerminal('(connection timed out)');
+				}
+			}, 3000);
+
+			ws.on('open', () => {
+				connected = true;
+				clearTimeout(timeout);
+				this._ws = ws;
+				this._openWebSocketTerminal();
+			});
+
+			ws.on('error', () => {
+				if (!connected) {
+					connected = true;
+					clearTimeout(timeout);
+					this._openLocalTerminal('(server not reachable)');
+				}
+			});
+		} catch (err) {
+			this._openLocalTerminal(`(${err})`);
+		}
 	}
 
 	/**
-	 * Connect to the terminal WebSocket.
+	 * Open a Pseudoterminal connected through WebSocket for true shared I/O.
 	 */
-	private _connect(): void {
-		try {
-			this._ws = new WebSocket(this._serverUrl);
-
-			this._ws.onopen = () => {
-				// Join the terminal room
-				this._ws!.send(JSON.stringify({
+	private _openWebSocketTerminal(): void {
+		const pty: vscode.Pseudoterminal = {
+			onDidWrite: this._writeEmitter.event,
+			onDidClose: this._closeEmitter.event,
+			open: () => {
+				this._ws.send(JSON.stringify({
 					type: 'terminal:join',
 					roomId: this._roomId
 				}));
@@ -74,59 +94,82 @@ export class SharedTerminal implements vscode.Disposable {
 				);
 
 				if (this._containerId) {
-					// The room Host automatically tunnels the backend node-pty 
-					// process into the isolated Docker container.
 					setTimeout(() => {
 						this._sendInput(`docker exec -it ${this._containerId} /bin/bash\r`);
-						
-						// Slight delay to allow bash to initialize before clearing screen
 						setTimeout(() => {
 							this._sendInput(`clear\r`);
 						}, 300);
 					}, 500);
 				}
-			};
+			},
+			close: () => this._disconnect(),
+			handleInput: (data: string) => this._sendInput(data),
+			setDimensions: (dimensions: vscode.TerminalDimensions) => {
+				this._sendResize(dimensions.columns, dimensions.rows);
+			}
+		};
 
-			this._ws.onmessage = (event: MessageEvent) => {
-				try {
-					const msg = JSON.parse(event.data as string);
-					if (msg.type === 'terminal:output') {
-						this._writeEmitter.fire(msg.data);
-					} else if (msg.type === 'terminal:exit') {
-						this._writeEmitter.fire(
-							'\r\n\x1b[31m✗ Terminal session ended\x1b[0m\r\n'
-						);
-						this._closeEmitter.fire();
-					}
-				} catch {
-					// Raw data — write directly
-					this._writeEmitter.fire(event.data as string);
+		this._ws.on('message', (data: any) => {
+			try {
+				const msg = JSON.parse(data.toString());
+				if (msg.type === 'terminal:output') {
+					this._writeEmitter.fire(msg.data);
+				} else if (msg.type === 'terminal:exit') {
+					this._writeEmitter.fire(
+						'\r\n\x1b[31m✗ Terminal session ended\x1b[0m\r\n'
+					);
+					this._closeEmitter.fire();
 				}
-			};
+			} catch {
+				this._writeEmitter.fire(data.toString());
+			}
+		});
 
-			this._ws.onerror = (_event: Event) => {
-				this._writeEmitter.fire(
-					'\r\n\x1b[31m✗ Terminal connection error\x1b[0m\r\n'
-				);
-			};
-
-			this._ws.onclose = () => {
-				this._writeEmitter.fire(
-					'\r\n\x1b[33m⚠ Terminal disconnected\x1b[0m\r\n'
-				);
-			};
-		} catch (err) {
+		this._ws.on('close', () => {
 			this._writeEmitter.fire(
-				`\r\n\x1b[31m✗ Failed to connect: ${err}\x1b[0m\r\n`
+				'\r\n\x1b[33m⚠ Terminal disconnected\x1b[0m\r\n'
 			);
+		});
+
+		this._terminal = vscode.window.createTerminal({
+			name: `Shared Terminal [${this._roomId.substring(0, 8)}]`,
+			pty
+		});
+		this._terminal.show();
+	}
+
+	/**
+	 * Fallback: open a regular local VS Code terminal.
+	 * This always works, even without a backend server.
+	 */
+	private _openLocalTerminal(reason: string): void {
+		console.log(`[collab] Falling back to local terminal ${reason}`);
+
+		const shellPath = process.platform === 'win32' ? 'cmd.exe' : '/bin/bash';
+
+		this._terminal = vscode.window.createTerminal({
+			name: `Collab Terminal [${this._roomId.substring(0, 8)}]`,
+			shellPath,
+		});
+		this._terminal.show();
+
+		// If Docker is up, auto-exec into the container
+		if (this._containerId) {
+			setTimeout(() => {
+				this._terminal?.sendText(`docker exec -it ${this._containerId} /bin/bash`);
+			}, 500);
 		}
+
+		vscode.window.showWarningMessage(
+			`Shared terminal relay not available ${reason}. Opened a local terminal instead.`
+		);
 	}
 
 	/**
 	 * Send input to the server terminal.
 	 */
 	private _sendInput(data: string): void {
-		if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+		if (this._ws && this._ws.readyState === 1 /* OPEN */) {
 			this._ws.send(JSON.stringify({
 				type: 'terminal:input',
 				roomId: this._roomId,
@@ -139,7 +182,7 @@ export class SharedTerminal implements vscode.Disposable {
 	 * Send resize event to the server terminal.
 	 */
 	private _sendResize(cols: number, rows: number): void {
-		if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+		if (this._ws && this._ws.readyState === 1 /* OPEN */) {
 			this._ws.send(JSON.stringify({
 				type: 'terminal:resize',
 				roomId: this._roomId,
@@ -154,7 +197,7 @@ export class SharedTerminal implements vscode.Disposable {
 	 */
 	private _disconnect(): void {
 		if (this._ws) {
-			this._ws.close();
+			try { this._ws.close(); } catch { /* ignore */ }
 			this._ws = null;
 		}
 	}

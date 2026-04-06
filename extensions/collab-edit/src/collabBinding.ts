@@ -10,15 +10,11 @@ import type { RbacManager } from './rbacManager';
 /**
  * Bidirectional binding between a VS Code TextDocument and a Y.Text CRDT.
  *
- * Local → Remote: listens to onDidChangeTextDocument, translates change events
- *   into Y.Text insert/delete operations within a Y.Doc.transact()
- *
- * Remote → Local: observes Y.Text via ytext.observe(), converts Y.js delta ops
- *   into vscode.WorkspaceEdit applied via vscode.workspace.applyEdit()
- *
- * Uses suppress flags to prevent echo loops.
- * Normalizes all text to LF (\n) inside the CRDT to handle cross-platform
- * line-ending differences (CRLF on Windows vs LF on Linux/Mac).
+ * Key insight for correctness:
+ *   - Local→CRDT: The CRDT has the OLD state, the document has the NEW state.
+ *     So we read from the CRDT for offset calculations.
+ *   - CRDT→Local: The CRDT has the NEW state, the document has the OLD state.
+ *     So we read from the document for offset calculations.
  */
 export class CollabBinding implements vscode.Disposable {
 	private readonly _disposables: vscode.Disposable[] = [];
@@ -31,22 +27,8 @@ export class CollabBinding implements vscode.Disposable {
 		private readonly _ydoc: Y.Doc,
 		private readonly _rbacManager?: RbacManager
 	) {
-		// Initial content synchronization:
-		// - If Y.Text already has content (joining an existing room),
-		//   replace the local document with the CRDT state.
-		// - If Y.Text is empty (first user or new file),
-		//   seed the CRDT with the local document content (normalized to LF).
-		if (this._ytext.length > 0) {
-			const crdtContent = this._ytext.toString();
-			const localContent = this._normalize(this._document.getText());
-			if (crdtContent !== localContent) {
-				this._applyFullContent(crdtContent);
-			}
-		} else if (this._document.getText().length > 0) {
-			this._ydoc.transact(() => {
-				this._ytext.insert(0, this._normalize(this._document.getText()));
-			}, this);
-		}
+		// Delay initial sync to let WebSocket connect and existing CRDT state arrive
+		setTimeout(() => this._initializeContent(), 1500);
 
 		// Listen for local edits
 		this._disposables.push(
@@ -57,56 +39,77 @@ export class CollabBinding implements vscode.Disposable {
 		this._ytext.observe(this._onRemoteChange);
 	}
 
-	// ──────────────────────── EOL Helpers ────────────────────────
+	private _initializeContent(): void {
+		if (this._ytext.length > 0) {
+			const crdtContent = this._ytext.toString();
+			const localContent = this._normalize(this._document.getText());
+			if (crdtContent !== localContent) {
+				this._applyFullContent(crdtContent);
+			}
+		} else if (this._document.getText().length > 0) {
+			this._suppressRemoteApply = true;
+			this._ydoc.transact(() => {
+				this._ytext.insert(0, this._normalize(this._document.getText()));
+			}, this);
+			this._suppressRemoteApply = false;
+		}
+	}
 
-	/**
-	 * Normalize text to LF (\n) — this is the canonical form inside the CRDT.
-	 */
+	// ──────────────────────── Helpers ────────────────────────
+
+	/** Normalize text to LF — canonical form inside the CRDT. */
 	private _normalize(text: string): string {
 		return text.replace(/\r\n/g, '\n');
 	}
 
 	/**
-	 * Convert a document character offset (which counts \r\n as 2 chars)
-	 * to a CRDT offset (which counts \n as 1 char).
+	 * Convert a VS Code Position to a CRDT offset.
+	 * Used in the Local→CRDT path.
+	 * Reads from the CRDT text because the document is already post-edit.
 	 */
-	private _docOffsetToCrdtOffset(docOffset: number): number {
-		if (this._document.eol === vscode.EndOfLine.LF) {
-			return docOffset;
+	private _positionToCrdtOffset(pos: vscode.Position): number {
+		const crdtText = this._ytext.toString();
+		const lines = crdtText.split('\n');
+		let offset = 0;
+		for (let i = 0; i < pos.line && i < lines.length; i++) {
+			offset += lines[i].length + 1;
 		}
-		const textBefore = this._document.getText().substring(0, docOffset);
-		const crlfCount = (textBefore.match(/\r\n/g) || []).length;
-		return docOffset - crlfCount;
+		if (pos.line < lines.length) {
+			offset += Math.min(pos.character, lines[pos.line].length);
+		}
+		return offset;
 	}
 
 	/**
-	 * Convert a CRDT offset (LF-based) to a document character offset
-	 * (which may use CRLF and count \r\n as 2 chars).
+	 * Convert a CRDT offset to a VS Code Position.
+	 * Used in the CRDT→Local path.
+	 * Reads from the DOCUMENT text because the CRDT is already post-edit.
 	 */
-	private _crdtOffsetToDocOffset(crdtOffset: number): number {
+	private _crdtOffsetToDocPosition(crdtOffset: number): vscode.Position {
 		if (this._document.eol === vscode.EndOfLine.LF) {
-			return crdtOffset;
+			// LF document: CRDT offset === document offset
+			return this._document.positionAt(crdtOffset);
 		}
+
+		// CRLF document: walk through the document text,
+		// mapping LF-based CRDT offsets to CRLF-based document offsets.
 		const docText = this._document.getText();
-		let crdt = 0;
-		let doc = 0;
-		while (crdt < crdtOffset && doc < docText.length) {
-			if (docText[doc] === '\r' && doc + 1 < docText.length && docText[doc + 1] === '\n') {
-				doc += 2;
-				crdt += 1;
+		let crdtPos = 0;
+		let docPos = 0;
+		while (crdtPos < crdtOffset && docPos < docText.length) {
+			if (docText[docPos] === '\r' && docPos + 1 < docText.length && docText[docPos + 1] === '\n') {
+				crdtPos++; // \r\n in doc = 1 char (\n) in CRDT
+				docPos += 2;
 			} else {
-				doc++;
-				crdt++;
+				crdtPos++;
+				docPos++;
 			}
 		}
-		return doc;
+		return this._document.positionAt(docPos);
 	}
 
 	// ──────────────────────── Local → CRDT ────────────────────────
 
-	/**
-	 * Handle local VS Code document changes → push to Y.Text.
-	 */
 	private _onLocalChange(e: vscode.TextDocumentChangeEvent): void {
 		if (e.document !== this._document) {
 			return;
@@ -115,16 +118,13 @@ export class CollabBinding implements vscode.Disposable {
 			return;
 		}
 
-		// Enforce RBAC Locks dynamically
+		// Enforce RBAC
 		if (this._rbacManager) {
 			const relativePath = vscode.workspace.asRelativePath(this._document.uri, false);
 			if (!this._rbacManager.hasAccess(this._rbacManager.currentUser, relativePath)) {
-				vscode.window.showWarningMessage(`Access Restricted by Admin! Reverting changes to ${relativePath}.`);
-				
-				// Revert by restoring the canonical CRDT state
+				vscode.window.showWarningMessage(`Access Restricted! Reverting changes to ${relativePath}.`);
 				this._suppressLocalBroadcast = true;
-				const crdtContent = this._ytext.toString();
-				this._applyFullContent(crdtContent).finally(() => {
+				this._applyFullContent(this._ytext.toString()).finally(() => {
 					this._suppressLocalBroadcast = false;
 				});
 				return;
@@ -134,25 +134,23 @@ export class CollabBinding implements vscode.Disposable {
 		this._suppressRemoteApply = true;
 		try {
 			this._ydoc.transact(() => {
-				// Process changes in reverse order to maintain correct offsets
-				const sortedChanges = [...e.contentChanges].sort(
+				// Process changes in reverse offset order to keep positions stable
+				const sorted = [...e.contentChanges].sort(
 					(a, b) => b.rangeOffset - a.rangeOffset
 				);
 
-				for (const change of sortedChanges) {
-					// Convert from document offsets to CRDT (LF-normalized) offsets
-					const crdtOffset = this._docOffsetToCrdtOffset(change.rangeOffset);
-					const crdtDeleteLen = this._normalize(
-						this._document.getText().substring(0, change.rangeOffset + change.rangeLength)
-					).length - this._normalize(
-						this._document.getText().substring(0, change.rangeOffset)
-					).length;
+				for (const change of sorted) {
+					// change.range refers to the OLD document state.
+					// The CRDT still has OLD state → _positionToCrdtOffset is correct.
+					const crdtStart = this._positionToCrdtOffset(change.range.start);
+					const crdtEnd = this._positionToCrdtOffset(change.range.end);
+					const deleteLen = crdtEnd - crdtStart;
 
-					if (crdtDeleteLen > 0) {
-						this._ytext.delete(crdtOffset, crdtDeleteLen);
+					if (deleteLen > 0) {
+						this._ytext.delete(crdtStart, deleteLen);
 					}
 					if (change.text.length > 0) {
-						this._ytext.insert(crdtOffset, this._normalize(change.text));
+						this._ytext.insert(crdtStart, this._normalize(change.text));
 					}
 				}
 			}, this);
@@ -163,9 +161,6 @@ export class CollabBinding implements vscode.Disposable {
 
 	// ──────────────────────── CRDT → Local ────────────────────────
 
-	/**
-	 * Handle remote Y.Text changes → apply to VS Code document.
-	 */
 	private readonly _onRemoteChange = (event: Y.YTextEvent, transaction: Y.Transaction): void => {
 		if (this._suppressRemoteApply) {
 			return;
@@ -177,6 +172,9 @@ export class CollabBinding implements vscode.Disposable {
 		this._suppressLocalBroadcast = true;
 
 		const edit = new vscode.WorkspaceEdit();
+
+		// Delta offsets refer to positions in the OLD CRDT text.
+		// The document still has OLD content → _crdtOffsetToDocPosition is correct.
 		let crdtOffset = 0;
 
 		for (const delta of event.delta) {
@@ -184,40 +182,36 @@ export class CollabBinding implements vscode.Disposable {
 				crdtOffset += delta.retain;
 			} else if (delta.insert !== undefined) {
 				const text = typeof delta.insert === 'string' ? delta.insert : '';
-				// Convert CRDT offset to document offset, then to position
-				const docOffset = this._crdtOffsetToDocOffset(crdtOffset);
-				const pos = this._document.positionAt(docOffset);
-				// Insert with the document's native EOL
+				const pos = this._crdtOffsetToDocPosition(crdtOffset);
+				// Convert LF → native EOL for insertion
 				const nativeText = this._document.eol === vscode.EndOfLine.CRLF
 					? text.replace(/\n/g, '\r\n')
 					: text;
 				edit.insert(this._document.uri, pos, nativeText);
+				// insert does NOT advance through old text; skip in new text
 				crdtOffset += text.length;
 			} else if (delta.delete !== undefined) {
-				const docStart = this._crdtOffsetToDocOffset(crdtOffset);
-				const docEnd = this._crdtOffsetToDocOffset(crdtOffset + delta.delete);
-				const startPos = this._document.positionAt(docStart);
-				const endPos = this._document.positionAt(docEnd);
+				const startPos = this._crdtOffsetToDocPosition(crdtOffset);
+				const endPos = this._crdtOffsetToDocPosition(crdtOffset + delta.delete);
 				edit.delete(this._document.uri, new vscode.Range(startPos, endPos));
+				// delete advances through old text but we don't update crdtOffset
+				// because the deleted chars no longer exist
 			}
 		}
 
 		vscode.workspace.applyEdit(edit).then(
-			(_success) => {
-				this._suppressLocalBroadcast = false;
-			},
+			() => { this._suppressLocalBroadcast = false; },
 			(err) => {
 				this._suppressLocalBroadcast = false;
 				console.error('[collab] Failed to apply remote edit:', err);
+				// Safety net: full resync on failure
+				this._applyFullContent(this._ytext.toString());
 			}
 		);
 	};
 
 	// ──────────────────────── Full Sync ────────────────────────
 
-	/**
-	 * Replace the entire local document content (used for initial sync).
-	 */
 	private async _applyFullContent(content: string): Promise<void> {
 		this._suppressLocalBroadcast = true;
 		try {
@@ -226,7 +220,6 @@ export class CollabBinding implements vscode.Disposable {
 				this._document.positionAt(0),
 				this._document.positionAt(this._document.getText().length)
 			);
-			// Convert LF content to the document's native EOL
 			const nativeContent = this._document.eol === vscode.EndOfLine.CRLF
 				? content.replace(/\n/g, '\r\n')
 				: content;
@@ -243,6 +236,5 @@ export class CollabBinding implements vscode.Disposable {
 			d.dispose();
 		}
 		this._disposables.length = 0;
-		console.log(`[collab] CollabBinding disposed for ${this._document.uri.toString()}`);
 	}
 }
