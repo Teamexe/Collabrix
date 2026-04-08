@@ -58,6 +58,7 @@ Collabrix is organized around four pillars:
 
 | Feature | Description |
 |---|---|
+| Extensions Marketplace | Integrated with **Open VSX** for seamless module discovery |
 | CRDT Co-editing | Conflict-free simultaneous editing via Y.js |
 | Cursor Presence | Live remote cursors with colors and labels |
 | Room Sessions | Create/join collaboration rooms instantly |
@@ -79,6 +80,15 @@ Collabrix is organized around four pillars:
 
 - [Node.js](https://nodejs.org/) v22+
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (optional, for isolated devcontainers)
+
+### 0. Quick Start (One Command)
+
+We provide a specialized setup script that handles dependency installation, extension compilation, and server setup in one go:
+
+```bash
+chmod +x ./scripts/collabrix-setup.sh
+./scripts/collabrix-setup.sh
+```
 
 ### 1. Start the Collaboration Server
 
@@ -111,6 +121,30 @@ From the repository root:
 ```
 
 Open the Command Palette (`Ctrl+Shift+P`) and type **Collab** to create or join a room.
+
+---
+
+## Extension Marketplace
+
+Collabrix is migrated to the **Open VSX Registry** (`https://open-vsx.org`). This provides access to thousands of open-source extensions without proprietary Microsoft marketplace restrictions.
+
+> [!NOTE]
+> We have implemented safety rails in the Extension Gallery Service to ensure stability even when official AI/Chat agent configurations are missing.
+
+---
+
+## Troubleshooting
+
+### Terminal fails to open
+If the integrated terminal fails to launch with a "ptyHost terminated" error, the native modules likely need to be rebuilt for the Electron version:
+
+```bash
+export npm_config_runtime=electron
+export npm_config_target=39.8.0
+export npm_config_disturl=https://electronjs.org/headers
+export VSCODE_FORCE_INSTALL=1
+node build/npm/postinstall.ts
+```
 
 ---
 
