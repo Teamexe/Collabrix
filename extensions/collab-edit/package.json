@@ -146,6 +146,13 @@
         "enablement": "collab.inRoom"
       }
     ],
+    "themes": [
+      {
+        "label": "Collabrix Elegance",
+        "uiTheme": "vs-dark",
+        "path": "./themes/collabrix-color-theme.json"
+      }
+    ],
     "menus": {
       "view/item/context": [
         {
