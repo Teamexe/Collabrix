@@ -188,11 +188,8 @@ export class SharedTerminal implements vscode.Disposable {
 			this._ws.onclose = () => this._writeEmitter.fire('\r\n\x1b[33m⚠ Terminal disconnected\x1b[0m\r\n');
 		} catch (err) {
 			this._writeEmitter.fire(`\r\n\x1b[31m✗ Failed to connect: ${err}\x1b[0m\r\n`);
+			vscode.window.showWarningMessage(`Shared terminal relay connection failed: ${err}`);
 		}
-
-		vscode.window.showWarningMessage(
-			`Shared terminal relay not available ${reason}. Opened a local terminal instead.`
-		);
 	}
 
 	private _sendInput(data: string): void {

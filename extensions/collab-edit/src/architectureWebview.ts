@@ -31,8 +31,8 @@ export class ArchitectureWebview implements vscode.Disposable {
 			}
 		);
 
-		// Handle Developer UI input -> Y.Text
-		this._panel.webview.onDidReceiveMessage((message) => {
+		// Handle Developer UI input -> Y.Text and Commands
+		this._panel.webview.onDidReceiveMessage(async (message) => {
 			if (message.command === 'updateDiagram') {
 				if (this._isApplyingRemote) return;
 				
@@ -40,6 +40,8 @@ export class ArchitectureWebview implements vscode.Disposable {
 					this._ytext.delete(0, this._ytext.length);
 					this._ytext.insert(0, message.text);
 				});
+			} else if (message.command === 'autoGenerate') {
+				await this._handleAutoGenerate(masterDoc);
 			}
 		}, null, this._disposables);
 
@@ -63,6 +65,79 @@ export class ArchitectureWebview implements vscode.Disposable {
 
 	public reveal(): void {
 		this._panel.reveal();
+	}
+
+	private async _handleAutoGenerate(masterDoc: Y.Doc): Promise<void> {
+		const config = vscode.workspace.getConfiguration('collab');
+		const claudeKey = config.get<string>('claudeApiKey');
+		const openAiKey = config.get<string>('openAiApiKey');
+
+		if (!claudeKey && !openAiKey) {
+			vscode.window.showErrorMessage('Configure Claude or OpenAI API key to Auto-Generate Graphs.');
+			return;
+		}
+
+		await vscode.window.withProgress({
+			location: vscode.ProgressLocation.Notification,
+			title: 'Collabrix: AI reading project to generate diagram...',
+			cancellable: false
+		}, async () => {
+			try {
+				const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**');
+				const tree = files.map(f => vscode.workspace.asRelativePath(f)).join('\n');
+				
+				const prompt = `You are a software architect. Build a Mermaid.js diagram showing this project's architecture. 
+Only output valid Mermaid code starting with "graph TD;". No markdown ticks or explanation.
+Project Files:
+${tree}`;
+
+				let mermaidCode = '';
+
+				if (claudeKey) {
+					const res = await fetch('https://api.anthropic.com/v1/messages', {
+						method: 'POST',
+						headers: {
+							'x-api-key': claudeKey,
+							'anthropic-version': '2023-06-01',
+							'content-type': 'application/json'
+						},
+						body: JSON.stringify({
+							model: 'claude-3-opus-20240229',
+							max_tokens: 1024,
+							messages: [{ role: 'user', content: prompt }]
+						})
+					});
+					if (!res.ok) throw new Error(res.statusText);
+					const data = await res.json() as any;
+					mermaidCode = data.content?.[0]?.text || '';
+				} else if (openAiKey) {
+					const res = await fetch('https://api.openai.com/v1/chat/completions', {
+						method: 'POST',
+						headers: {
+							'Authorization': `Bearer ${openAiKey}`,
+							'content-type': 'application/json'
+						},
+						body: JSON.stringify({
+							model: 'gpt-4o',
+							messages: [{ role: 'user', content: prompt }]
+						})
+					});
+					if (!res.ok) throw new Error(res.statusText);
+					const data = await res.json() as any;
+					mermaidCode = data.choices?.[0]?.message?.content || '';
+				}
+
+				// Clean up markdown block if present
+				mermaidCode = mermaidCode.replace(/\`\`\`mermaid/i, '').replace(/\`\`\`/g, '').trim();
+
+				masterDoc.transact(() => {
+					this._ytext.delete(0, this._ytext.length);
+					this._ytext.insert(0, mermaidCode);
+				});
+			} catch (err: any) {
+				vscode.window.showErrorMessage(`Auto-Gen Failed: ${err.message}`);
+			}
+		});
 	}
 
 	private readonly _onRemoteChange = (): void => {
@@ -104,11 +179,13 @@ export class ArchitectureWebview implements vscode.Disposable {
 		}
 		.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 		.branding { font-weight: bold; background: linear-gradient(90deg, #ff007f, #00d2ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 1.2em; }
+		#autoGenBtn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 4px 10px; cursor: pointer; border-radius: 2px; }
     </style>
 </head>
 <body>
 	<div class="header">
 		<span class="branding">Collabrix: Live Visual Architecture</span>
+		<button id="autoGenBtn">Auto-Generate from Files</button>
 	</div>
     <div id="diagram-container">
         <div class="mermaid" id="mermaid-target"></div>
@@ -121,6 +198,11 @@ export class ArchitectureWebview implements vscode.Disposable {
         const vscode = acquireVsCodeApi();
         const editor = document.getElementById('editor');
         const target = document.getElementById('mermaid-target');
+		const autoGenBtn = document.getElementById('autoGenBtn');
+
+		autoGenBtn.addEventListener('click', () => {
+			vscode.postMessage({ command: 'autoGenerate' });
+		});
 
 		let isRendering = false;
 

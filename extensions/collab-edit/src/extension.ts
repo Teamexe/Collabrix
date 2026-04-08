@@ -29,6 +29,8 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('collab.handoffTerminal', () => session!.handoffTerminal()),
 		vscode.commands.registerCommand('collab.showAuditLog', () => session!.showAuditLog()),
 		vscode.commands.registerCommand('collab.prefetchDeps', () => session!.prefetchDependencies()),
+		vscode.commands.registerCommand('collab.runDeployScan', () => session!.runDeployScan()),
+		vscode.commands.registerCommand('collab.openChatAgent', () => session!.openChatAgent()),
 	);
 }
 

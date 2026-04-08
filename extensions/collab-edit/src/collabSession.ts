@@ -21,6 +21,8 @@ import { ShadowQA } from './shadowQA';
 import { HuddleAssistant } from './huddleAssistant';
 import { AuditLogger } from './auditLogger';
 import { IntentPrefetcher } from './intentPrefetcher';
+import { DeploymentScanner } from './deploymentScanner';
+import { ChatAgentWebview } from './chatAgentWebview';
 
 interface RoomInfo {
 	roomId: string;
@@ -49,6 +51,7 @@ export class CollabSession implements vscode.Disposable {
 	private _huddleAssistant: HuddleAssistant | null = null;
 	private _auditLogger: AuditLogger | null = null;
 	private _intentPrefetcher: IntentPrefetcher | null = null;
+	private _chatAgent: ChatAgentWebview | null = null;
 	private readonly _bindings: Map<string, CollabBinding> = new Map();
 	private readonly _disposables: vscode.Disposable[] = [];
 	private _statusBarItem: vscode.StatusBarItem;
@@ -237,12 +240,45 @@ export class CollabSession implements vscode.Disposable {
 			vscode.window.showWarningMessage('Join a room first to view the audit log.');
 			return;
 		}
-		vscode.commands.executeCommand('collab.showAuditLog');
+		this._auditLogger.show();
 	}
 
 	/** Manually trigger the intent prefetcher */
 	async prefetchDependencies(): Promise<void> {
 		await this._intentPrefetcher?.runManual();
+	}
+
+	/** Run Deployment AI Audit */
+	async runDeployScan(): Promise<void> {
+		if (!this._room) {
+			vscode.window.showWarningMessage('Not in a room.');
+			return;
+		}
+		const config = vscode.workspace.getConfiguration('collab');
+		const claudeKey = config.get<string>('claudeApiKey');
+		const openAiKey = config.get<string>('openAiApiKey');
+		
+		const deployScanner = new DeploymentScanner(claudeKey, openAiKey);
+		await deployScanner.runScan();
+	}
+
+	/** Open the Custom AI Chat Agent */
+	openChatAgent(): void {
+		if (!this._room) {
+			vscode.window.showWarningMessage('Not in a room.');
+			return;
+		}
+		const config = vscode.workspace.getConfiguration('collab');
+		const claudeKey = config.get<string>('claudeApiKey');
+		const openAiKey = config.get<string>('openAiApiKey');
+
+		if (!this._chatAgent) {
+			this._chatAgent = new ChatAgentWebview(claudeKey, openAiKey, () => {
+				this._chatAgent = null;
+			});
+		} else {
+			this._chatAgent.reveal();
+		}
 	}
 
 	/**
@@ -481,7 +517,7 @@ export class CollabSession implements vscode.Disposable {
 		}
 
 		if (name) {
-			await config.update('userName', name, vscode.ConfigurationTarget.Global);
+			await config.update('userName', name, vscode.ConfigurationTarget.Workspace);
 		}
 
 		return name || undefined;
@@ -562,6 +598,9 @@ export class CollabSession implements vscode.Disposable {
 		// Audit + prefetcher
 		this._auditLogger?.dispose();
 		this._auditLogger = null;
+
+		this._chatAgent?.dispose();
+		this._chatAgent = null;
 
 		// Disconnect websocket
 		this._wsProvider?.dispose();

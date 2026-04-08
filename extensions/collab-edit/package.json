@@ -132,6 +132,18 @@
         "command": "collab.prefetchDeps",
         "title": "Collabrix: Prefetch Dependencies",
         "category": "Collab"
+      },
+      {
+        "command": "collab.runDeployScan",
+        "title": "Collabrix: Run Pre-Deployment AI Audit",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
+      },
+      {
+        "command": "collab.openChatAgent",
+        "title": "Collabrix: Open AI Assistant",
+        "category": "Collab",
+        "enablement": "collab.inRoom"
       }
     ],
     "menus": {
@@ -164,6 +176,16 @@
           "type": "boolean",
           "default": false,
           "description": "Enable Docker-based isolated environments for rooms"
+        },
+        "collab.claudeApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Claude API Key for ShadowQA Agent"
+        },
+        "collab.openAiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API Key for ShadowQA Agent (Fallback if Claude is not set)"
         }
       }
     }

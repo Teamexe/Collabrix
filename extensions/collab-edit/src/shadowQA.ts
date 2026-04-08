@@ -34,40 +34,122 @@ export class ShadowQA implements vscode.Disposable {
 		// Throttle streaming code to external AI backend
 		this._typingTimer = setTimeout(() => {
 			this._analyzeWithClaude(e.document);
-		}, 2000);
+		}, 5000);
 	}
 
-	private _analyzeWithClaude(doc: vscode.TextDocument): void {
+	private async _analyzeWithClaude(doc: vscode.TextDocument): Promise<void> {
 		const text = doc.getText();
-		const diagnostics: vscode.Diagnostic[] = [];
-		
-		// Mock Claude Semantic Intelligence parsing the code payload
-		const lines = text.split('\n');
-		lines.forEach((line, i) => {
-			// Fake Semantic Hook 1: Anti-patterns
-			if (line.includes('console.log(')) {
-				const range = new vscode.Range(i, line.indexOf('console.log'), i, line.length);
-				const diag = new vscode.Diagnostic(
-					range, 
-					'🤖 [Claude QA] Debugging statement detected in production flow. Consider removing or converting to formal telemetry logging.',
-					vscode.DiagnosticSeverity.Warning
-				);
-				diagnostics.push(diag);
+		const config = vscode.workspace.getConfiguration('collab');
+		const claudeKey = config.get<string>('claudeApiKey');
+		const openAiKey = config.get<string>('openAiApiKey');
+
+		if (!claudeKey && !openAiKey) {
+			// Fail gracefully if keys aren't set
+			return;
+		}
+
+		try {
+			let diagnostics: vscode.Diagnostic[] = [];
+
+			if (claudeKey) {
+				diagnostics = await this._fetchFromClaude(claudeKey, text);
+			} else if (openAiKey) {
+				diagnostics = await this._fetchFromOpenAI(openAiKey, text);
 			}
-			// Fake Semantic Hook 2: Tech Debt Watcher
-			if (line.includes('TODO')) {
-				const range = new vscode.Range(i, line.indexOf('TODO'), i, line.length);
-				const diag = new vscode.Diagnostic(
-					range, 
-					'🤖 [Claude QA] Unresolved TODO detected. Should we escalate this to the Unified Task Board?',
-					vscode.DiagnosticSeverity.Information
-				);
-				diagnostics.push(diag);
-			}
+
+			// Reflect AI feedback into local editor UI natively
+			this._diagnosticCollection.set(doc.uri, diagnostics);
+		} catch (error) {
+			console.error('[collab] ShadowQA Error:', error);
+		}
+	}
+
+	private async _fetchFromClaude(apiKey: string, code: string): Promise<vscode.Diagnostic[]> {
+		const response = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: {
+				'x-api-key': apiKey,
+				'anthropic-version': '2023-06-01',
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				model: 'claude-3-opus-20240229',
+				max_tokens: 1024,
+				messages: [{
+					role: 'user',
+					content: this._getPrompt(code)
+				}]
+			})
 		});
 
-		// Reflect AI feedback into local editor UI natively
-		this._diagnosticCollection.set(doc.uri, diagnostics);
+		if (!response.ok) {
+			throw new Error(`Claude API Error: ${response.statusText}`);
+		}
+
+		const data = await response.json() as any;
+		const rawContent = data.content?.[0]?.text || '';
+		return this._parseAiResponse(rawContent);
+	}
+
+	private async _fetchFromOpenAI(apiKey: string, code: string): Promise<vscode.Diagnostic[]> {
+		const response = await fetch('https://api.openai.com/v1/chat/completions', {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${apiKey}`,
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				model: 'gpt-4o',
+				messages: [{
+					role: 'user',
+					content: this._getPrompt(code)
+				}]
+			})
+		});
+
+		if (!response.ok) {
+			throw new Error(`OpenAI API Error: ${response.statusText}`);
+		}
+
+		const data = await response.json() as any;
+		const rawContent = data.choices?.[0]?.message?.content || '';
+		return this._parseAiResponse(rawContent);
+	}
+
+	private _getPrompt(code: string): string {
+		return `You are a real-time pair programming agent.
+Review the following code and return ONLY a JSON array of objects representing anti-patterns, logic bugs, or technical debt.
+Do not wrap it in markdown block. Just pure JSON.
+Each object must have exactly these keys:
+- "line": The 0-indexed line number where the issue occurs. (integer)
+- "severity": "error", "warning", or "information".
+- "message": A short explanation of the issue.
+
+Code:
+${code}`;
+	}
+
+	private _parseAiResponse(content: string): vscode.Diagnostic[] {
+		const diagnostics: vscode.Diagnostic[] = [];
+		try {
+			const match = content.match(/\[[\s\S]*\]/);
+			if (match) {
+				const issues = JSON.parse(match[0]);
+				for (const issue of issues) {
+					if (typeof issue.line === 'number' && issue.message) {
+						const severity = issue.severity === 'error' ? vscode.DiagnosticSeverity.Error 
+							: issue.severity === 'warning' ? vscode.DiagnosticSeverity.Warning 
+							: vscode.DiagnosticSeverity.Information;
+						
+						const range = new vscode.Range(issue.line, 0, issue.line, 9999);
+						diagnostics.push(new vscode.Diagnostic(range, `🤖 [ShadowQA] ${issue.message}`, severity));
+					}
+				}
+			}
+		} catch (e) {
+			console.error('Failed to parse AI response:', content);
+		}
+		return diagnostics;
 	}
 
 	dispose(): void {

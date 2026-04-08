@@ -98,7 +98,7 @@ export class AwarenessManager implements vscode.Disposable {
 				anchor: { line: selection.anchor.line, ch: selection.anchor.character },
 				head: { line: selection.active.line, ch: selection.active.character }
 			},
-			fileUri: editor.document.uri.toString()
+			fileUri: vscode.workspace.asRelativePath(editor.document.uri, false)
 		};
 
 		this._awareness.setLocalState(state);
@@ -117,7 +117,7 @@ export class AwarenessManager implements vscode.Disposable {
 
 		this._awareness.setLocalStateField(
 			'fileUri',
-			editor.document.uri.toString()
+			vscode.workspace.asRelativePath(editor.document.uri, false)
 		);
 	}
 

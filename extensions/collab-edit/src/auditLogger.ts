@@ -34,13 +34,12 @@ export class AuditLogger implements vscode.Disposable {
 		// Reflect remote entries into the output channel
 		this._log.observe(() => this._refresh());
 
-		this._disposables.push(
-			this._outputChannel,
-			vscode.commands.registerCommand('collab.showAuditLog', () => {
-				this._refresh();
-				this._outputChannel.show(true);
-			})
-		);
+		this._disposables.push(this._outputChannel);
+	}
+
+	show(): void {
+		this._refresh();
+		this._outputChannel.show(true);
 	}
 
 	/** Record an action — call this from anywhere in the session */

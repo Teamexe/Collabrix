@@ -48,8 +48,8 @@ export class CursorDecorationManager implements vscode.Disposable {
 		const editors = vscode.window.visibleTextEditors;
 
 		for (const editor of editors) {
-			const fileUri = editor.document.uri.toString();
-			const fileCursors = cursorsByFile.get(fileUri) ?? [];
+			const relativePath = vscode.workspace.asRelativePath(editor.document.uri, false);
+			const fileCursors = cursorsByFile.get(relativePath) ?? [];
 
 			// Clear all decorations for clients not in this file anymore
 			for (const [clientId, types] of this._decorationTypes) {
