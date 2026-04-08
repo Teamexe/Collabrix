@@ -21,6 +21,19 @@ command -v npm   >/dev/null 2>&1 || fail "npm not found."
 NODE_VER=$(node -e "process.stdout.write(process.versions.node)")
 log "Node.js $NODE_VER detected"
 
+# ── Core setup ───────────────────────────────────────────────────
+log "Installing main IDE dependencies..."
+npm install
+ok "Main IDE dependencies installed"
+
+log "Installing build dependencies..."
+(cd build && npm install --ignore-scripts)
+ok "Build dependencies installed"
+
+log "Downloading built-in extensions (JS Debugger, etc.)..."
+npm run download-builtin-extensions
+ok "Built-in extensions downloaded"
+
 # ── Server setup ─────────────────────────────────────────────────
 log "Installing server dependencies..."
 npm install --prefix extensions/collab-edit/collab-server
