@@ -1,5 +1,15 @@
 import * as vscode from 'vscode';
 
+const SYSTEM_PROMPT = `You are the Collabrix AI Agent, an autonomous developer assistant.
+You have the ability to read the active file implicitly, and you can create or modify files in the user's workspace directly.
+
+If the user asks you to create or write code to a file, you MUST NOT just output a standard markdown code block. You MUST use the following exact XML block format:
+<file path="relative/path/to/file.ext">
+// file content goes here
+</file>
+
+The host system will automatically intercept this XML block, extract the content, and physically write the file to the user's disk. You must use this format to actually accomplish tasks!`;
+
 /**
  * Custom Collabrix AI Chat Agent mapping securely to OpenAI or Claude.
  * Replaces the need for external Copilot extensions.
@@ -36,7 +46,10 @@ export class ChatAgentWebview implements vscode.Disposable {
 					const prompt = `${message.text}\n${activeCode}`;
 					const reply = await this._fetchAI(prompt);
 					
-					this._pushMessage('ai', reply);
+					// Intercept XML actions and mutate the file system before sending to UI
+					const processedReply = await this._processAgenticActions(reply);
+					
+					this._pushMessage('ai', processedReply);
 				} catch (err: any) {
 					this._pushMessage('error', `AIAgent Error: ${err.message}`);
 				}
@@ -70,7 +83,8 @@ export class ChatAgentWebview implements vscode.Disposable {
 				},
 				body: JSON.stringify({
 					model: 'claude-3-opus-20240229',
-					max_tokens: 1024,
+					max_tokens: 2048,
+					system: SYSTEM_PROMPT,
 					messages: [{ role: 'user', content: prompt }]
 				})
 			});
@@ -86,7 +100,11 @@ export class ChatAgentWebview implements vscode.Disposable {
 				},
 				body: JSON.stringify({
 					model: 'gpt-4o',
-					messages: [{ role: 'user', content: prompt }]
+					max_tokens: 2048,
+					messages: [
+						{ role: 'system', content: SYSTEM_PROMPT },
+						{ role: 'user', content: prompt }
+					]
 				})
 			});
 			if (!res.ok) throw new Error(res.statusText);
@@ -94,6 +112,30 @@ export class ChatAgentWebview implements vscode.Disposable {
 			return data.choices?.[0]?.message?.content || '';
 		}
 		throw new Error("Missing keys");
+	}
+
+	private async _processAgenticActions(text: string): Promise<string> {
+		const fileRegex = /<file path="([^"]+)">\n?([\s\S]*?)<\/file>/g;
+		let match;
+		let modifiedText = text;
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		
+		if (!workspaceFolders) return text;
+
+		const rootUri = workspaceFolders[0].uri;
+
+		while ((match = fileRegex.exec(text)) !== null) {
+			const filePath = match[1];
+			const content = match[2];
+			try {
+				const fileUri = vscode.Uri.joinPath(rootUri, filePath);
+				await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf8'));
+				modifiedText = modifiedText.replace(match[0], `\n✅ **Agent Action Successful**: Created/Updated \`${filePath}\`\n`);
+			} catch (e: any) {
+				modifiedText = modifiedText.replace(match[0], `\n❌ **Agent Action Failed**: Could not write to \`${filePath}\` (${e.message})\n`);
+			}
+		}
+		return modifiedText;
 	}
 
 	private _getHtmlForWebview(): string {

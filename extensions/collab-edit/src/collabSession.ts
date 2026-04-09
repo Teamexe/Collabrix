@@ -506,18 +506,22 @@ export class CollabSession implements vscode.Disposable {
 	 */
 	private async _getUserName(): Promise<string | undefined> {
 		const config = vscode.workspace.getConfiguration('collab');
-		let name = config.get<string>('userName', '');
+		const inspect = config.inspect<string>('userName');
+		
+		// For local testing, we intentionally ignore the Global (User) setting 
+		// and ONLY read the Workspace setting, so different folders can have different names.
+		let name = inspect?.workspaceValue || inspect?.workspaceFolderValue;
 
 		if (!name) {
 			name = await vscode.window.showInputBox({
-				prompt: 'Enter your display name',
+				prompt: 'Enter your display name for THIS workspace',
 				placeHolder: 'e.g., Alice',
 				validateInput: (v) => v.trim().length === 0 ? 'Name is required' : null
 			}) ?? '';
-		}
 
-		if (name) {
-			await config.update('userName', name, vscode.ConfigurationTarget.Workspace);
+			if (name) {
+				await config.update('userName', name, vscode.ConfigurationTarget.Workspace);
+			}
 		}
 
 		return name || undefined;

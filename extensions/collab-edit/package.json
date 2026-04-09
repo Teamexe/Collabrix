@@ -166,12 +166,12 @@
       "properties": {
         "collab.serverUrl": {
           "type": "string",
-          "default": "ws://localhost:4000",
+          "default": "ws://collabrix-backend-rj0o.onrender.com",
           "description": "WebSocket URL of the collaboration server"
         },
         "collab.serverHttpUrl": {
           "type": "string",
-          "default": "http://localhost:4000",
+          "default": "http://collabrix-backend-rj0o.onrender.com",
           "description": "HTTP URL of the collaboration server REST API"
         },
         "collab.userName": {
