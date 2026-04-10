@@ -14,6 +14,7 @@ export class ArchitectureWebview implements vscode.Disposable {
 	private readonly _panel: vscode.WebviewPanel;
 	private readonly _disposables: vscode.Disposable[] = [];
 	private readonly _ytext: Y.Text;
+	private _autoSyncTimeout: NodeJS.Timeout | number | null = null;
 
 	// Guard against infinite loop reflections
 	private _isApplyingRemote = false;
@@ -61,35 +62,57 @@ export class ArchitectureWebview implements vscode.Disposable {
 				this._pushToWebview(this._ytext.toString());
 			}, 500);
 		}
+
+		// Real-time Code Change Sync!
+		vscode.workspace.onDidSaveTextDocument(async (doc) => {
+			if (doc.fileName.includes('node_modules') || doc.fileName.includes('.git')) return;
+			
+			if (this._autoSyncTimeout) clearTimeout(this._autoSyncTimeout as any);
+			
+			// Wait 3 seconds after save to avoid spamming the LLM API
+			this._autoSyncTimeout = setTimeout(async () => {
+				await this._handleAutoGenerate(masterDoc, true, doc);
+			}, 3000) as any;
+		}, null, this._disposables);
 	}
 
 	public reveal(): void {
 		this._panel.reveal();
 	}
 
-	private async _handleAutoGenerate(masterDoc: Y.Doc): Promise<void> {
+	private async _handleAutoGenerate(masterDoc: Y.Doc, isSilent: boolean = false, changedDoc?: vscode.TextDocument): Promise<void> {
 		const config = vscode.workspace.getConfiguration('collab');
 		const claudeKey = config.get<string>('claudeApiKey');
 		const openAiKey = config.get<string>('openAiApiKey');
 
 		if (!claudeKey && !openAiKey) {
-			vscode.window.showErrorMessage('Configure Claude or OpenAI API key to Auto-Generate Graphs.');
+			if (!isSilent) vscode.window.showErrorMessage('Configure Claude or OpenAI API key to Auto-Generate Graphs.');
 			return;
 		}
 
-		await vscode.window.withProgress({
-			location: vscode.ProgressLocation.Notification,
-			title: 'Collabrix: AI reading project to generate diagram...',
-			cancellable: false
-		}, async () => {
+		const generatorTask = async (progress?: vscode.Progress<{ message?: string }>) => {
 			try {
+				if (progress) progress.report({ message: 'Reading workspace files...' });
 				const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**');
-				const tree = files.map(f => vscode.workspace.asRelativePath(f)).join('\n');
+				const tree = files.slice(0, 50).map(f => vscode.workspace.asRelativePath(f)).join('\n');
+				const currentGraph = this._ytext.toString() || 'graph TD;';
 				
-				const prompt = `You are a software architect. Build a Mermaid.js diagram showing this project's architecture. 
+				let prompt = `You are a software architect maintaining this project's architecture diagram.
 Only output valid Mermaid code starting with "graph TD;". No markdown ticks or explanation.
+
+Current Diagram:
+${currentGraph}
+
 Project Files:
-${tree}`;
+${tree}
+
+Task: Output a refreshed Mermaid diagram. You MUST keep the layout style, syntax, and overall structure as consistent as possible with the "Current Diagram" to prevent massive visual jumping. Only add/remove nodes and links as necessary.`;
+
+				if (changedDoc) {
+					// Supply actual code context so the LLM tracks architectural shifts in real time!
+					const recentCode = changedDoc.getText().substring(0, 2000);
+					prompt += `\n\nAdditionally, the developer just updated the file: ${vscode.workspace.asRelativePath(changedDoc.uri)}.\nHere is the new code. Update the diagram to reflect this new code, while strongly maintaining the previous visual aesthetic:\n\n${recentCode}`;
+				}
 
 				let mermaidCode = '';
 
@@ -135,9 +158,23 @@ ${tree}`;
 					this._ytext.insert(0, mermaidCode);
 				});
 			} catch (err: any) {
-				vscode.window.showErrorMessage(`Auto-Gen Failed: ${err.message}`);
+				if (!isSilent) vscode.window.showErrorMessage(`Auto-Gen Failed: ${err.message}`);
 			}
-		});
+		};
+
+		if (isSilent) {
+			// Subtly show progress in the status bar instead of a blocking popup
+			await vscode.window.withProgress({
+				location: vscode.ProgressLocation.Window,
+				title: 'Collabrix: Real-time architecture updating...'
+			}, generatorTask);
+		} else {
+			await vscode.window.withProgress({
+				location: vscode.ProgressLocation.Notification,
+				title: 'Collabrix: AI generating architecture diagram...',
+				cancellable: false
+			}, generatorTask);
+		}
 	}
 
 	private readonly _onRemoteChange = (): void => {

@@ -2,7 +2,8 @@
 src/**
 collab-server/src/**
 collab-server/node_modules/**
-node_modules/**
+node_modules/leveldown/**
+**/*.node
 **/*.map
 **/*.ts
 !out/**
